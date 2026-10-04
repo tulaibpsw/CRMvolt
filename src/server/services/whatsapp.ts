@@ -1,4 +1,6 @@
 import 'server-only'
+import { loadLeadFor } from '@/server/auth/guards'
+import { hit } from '@/server/services/rate-limit'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { MessageStatus, MessageType } from '@/domain/constants'
 import { MESSAGE_TYPES } from '@/domain/constants'
@@ -6,7 +8,7 @@ import { normalizePhone } from '@/lib/phone'
 import { connectDb } from '@/server/db/connection'
 import { Contact, ContactAttempt, IngestEvent, Lead, Message, WhatsAppNumber } from '@/server/db/models'
 import type { SessionUser } from '@/server/auth/session'
-import { isDuplicateKey, logActivity, notify, oid } from '@/server/services/common'
+import { isDuplicateKey, logActivity, notify, oid, UserError } from '@/server/services/common'
 import { ingestLead } from '@/server/services/ingest'
 
 const GRAPH = 'https://graph.facebook.com/v23.0'
@@ -141,23 +143,49 @@ export async function sendWhatsAppText(leadId: string, text: string, user: Sessi
   await connectDb()
   const token = process.env.WHATSAPP_TOKEN
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID
-  if (!token || !phoneNumberId) throw new Error('WhatsApp is not connected yet (WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID missing).')
-  const lead = await Lead.findById(leadId).lean()
-  if (!lead) throw new Error('Lead not found')
-  if (user.role === 'agent' && String(lead.assignment?.agentId) !== user.id) throw new Error('Not your lead')
+  if (!token || !phoneNumberId) throw new UserError('WhatsApp is not connected yet (WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID missing).')
+  const lead = await loadLeadFor(user, leadId, 'work')
+  const body0 = text.trim()
+  if (!body0 || body0.length > 1000) throw new UserError('Message must be 1–1000 characters')
+  if ((await hit(`wa_send:${user.id}`, 30, 60_000)).blocked) throw new UserError('Too many messages — wait a minute')
+  // Meta rule: free text only within 24 h of the customer's last message (otherwise an approved template is needed).
+  const lastIn = await Message.findOne({ contactId: lead.contactId, direction: 'in' }).sort({ at: -1 }).select('at').lean()
+  if (!lastIn || Date.now() - lastIn.at.getTime() > 24 * 3_600_000) throw new UserError('The customer has not messaged in the last 24 hours — use the WhatsApp button to chat from your phone')
   const contact = await Contact.findById(lead.contactId).lean()
   const to = (contact?.whatsappE164 ?? contact?.phones[0] ?? '').replace(/^\+/, '')
   const res = await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'text', text: { body: text } }),
+    body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'text', text: { body: body0 } }),
   })
   const body = (await res.json()) as { messages?: { id: string }[]; error?: { message: string } }
-  if (!res.ok || !body.messages?.[0]) throw new Error(body.error?.message ?? 'WhatsApp send failed')
+  if (!res.ok || !body.messages?.[0]) throw new UserError(body.error?.message ?? 'WhatsApp send failed')
   const number = await WhatsAppNumber.findOneAndUpdate({ phoneNumberId }, { $setOnInsert: { number: '+920000000000', ownerType: 'department', status: 'connected' } }, { upsert: true, returnDocument: 'after' })
-  await Message.create({ waMessageId: body.messages[0].id, contactId: lead.contactId, leadId: lead._id, numberId: number._id, direction: 'out', type: 'text', text, sentFrom: 'api', sentByUserId: oid(user.id), status: 'sent', at: new Date() })
-  await logActivity(lead._id, 'message_out', user.id, { text: text.slice(0, 200), via: 'crm' })
+  await Message.create({ waMessageId: body.messages[0].id, contactId: lead.contactId, leadId: lead._id, numberId: number._id, direction: 'out', type: 'text', text: body0, sentFrom: 'api', sentByUserId: oid(user.id), status: 'sent', at: new Date() })
+  await logActivity(lead._id, 'message_out', user.id, { text: body0.slice(0, 200), via: 'crm' })
   await verifyRecentAttempt(leadId, user.id)
+}
+
+/** Process one stored webhook event and record the result (processWebhook is idempotent, so retries are safe). */
+export async function processStoredEvent(key: string): Promise<void> {
+  await connectDb()
+  const event = await IngestEvent.findOneAndUpdate({ idempotencyKey: key, status: { $in: ['received', 'failed'] }, tries: { $lt: 5 } }, { $inc: { tries: 1 } }, { returnDocument: 'after' }).lean()
+  if (!event) return
+  try {
+    await processWebhook(event.payload as Parameters<typeof processWebhook>[0])
+    await IngestEvent.updateOne({ _id: event._id }, { status: 'processed', error: null })
+  } catch (error) {
+    console.error('[whatsapp webhook]', error)
+    await IngestEvent.updateOne({ _id: event._id }, { status: 'failed', error: error instanceof Error ? error.message.slice(0, 300) : 'failed' })
+  }
+}
+
+/** Cron: retry webhook events that were stored but not processed (server restarted, database hiccup…). */
+export async function retryStoredEvents(): Promise<number> {
+  await connectDb()
+  const stuck = await IngestEvent.find({ source: 'whatsapp', status: { $in: ['received', 'failed'] }, tries: { $lt: 5 }, receivedAt: { $lt: new Date(Date.now() - 2 * 60_000) } }).sort({ receivedAt: 1 }).limit(20).select('idempotencyKey').lean()
+  for (const e of stuck) await processStoredEvent(e.idempotencyKey)
+  return stuck.length
 }
 
 export async function storeRawEvent(payload: unknown, key: string): Promise<boolean> {

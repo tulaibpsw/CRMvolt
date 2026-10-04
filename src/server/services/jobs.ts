@@ -2,10 +2,11 @@ import 'server-only'
 import { randomUUID } from 'node:crypto'
 import { pktDateKey } from '@/lib/dates-pkt'
 import { connectDb } from '@/server/db/connection'
-import { Attendance, Job, Lead, Lock, Team, User } from '@/server/db/models'
+import { Attendance, Job, Lead, Lock, Team, User, LeadAssignment } from '@/server/db/models'
 import { autoAssign, drainQueue, managersOf } from '@/server/services/assignment'
 import { isDuplicateKey, notify } from '@/server/services/common'
 import { getSetting, isOpen } from '@/server/services/settings'
+import { retryStoredEvents } from '@/server/services/whatsapp'
 
 /** Lease lock so overlapping cron calls (cron-job.org + app polling) never double-process. */
 export async function withLock<T>(name: string, ttlMs: number, fn: () => Promise<T>): Promise<T | null> {
@@ -51,6 +52,7 @@ export async function runTick(): Promise<{ processed: number; drained: number } 
       }
     }
     await autoCheckout(now)
+    await retryStoredEvents().catch((error) => console.error('[tick] webhook retry', error))
     const drained = await drainQueue()
     return { processed, drained }
   })
@@ -67,7 +69,9 @@ async function handle(job: NonNullable<JobDoc>): Promise<void> {
       return
     }
     case 'accept_due': {
-      if (!lead || lead.assignment?.state !== 'assigned' || String(job.assignmentId) === 'null') return
+      if (!lead || lead.assignment?.state !== 'assigned' || !job.assignmentId) return
+      // Only the assignment this timer was made for (not a later one).
+      if (!(await LeadAssignment.exists({ _id: job.assignmentId, leadId: lead._id, endedAt: null }))) return
       const team = lead.teamId ? await Team.findById(lead.teamId).lean() : null
       const agent = lead.assignment.agentId ? await User.findById(lead.assignment.agentId).lean() : null
       await notify({ userIds: await managersOf(lead.departmentId), type: 'not_accepted', title: `${agent?.name ?? 'Agent'} has not accepted a lead`, body: lead.leadNo, link: `/leads/${lead._id}`, dedupeKey: `not_accepted:${job.assignmentId}` })
@@ -83,6 +87,7 @@ async function handle(job: NonNullable<JobDoc>): Promise<void> {
     }
     case 'contact_due': {
       if (!lead || lead.firstContactAt) return
+      if (job.assignmentId && !(await LeadAssignment.exists({ _id: job.assignmentId, leadId: lead._id, endedAt: null }))) return
       const agent = lead.assignment?.agentId ? await User.findById(lead.assignment.agentId).lean() : null
       await notify({ userIds: await managersOf(lead.departmentId), type: 'not_contacted', title: `Not contacted yet: ${lead.leadNo}`, body: `${agent?.name ?? 'Unassigned'} has not called or messaged in time`, link: `/leads/${lead._id}`, dedupeKey: `not_contacted:${job.assignmentId}` })
       return
@@ -106,5 +111,10 @@ async function handle(job: NonNullable<JobDoc>): Promise<void> {
 async function autoCheckout(now: Date): Promise<void> {
   const hours = await getSetting('working_hours')
   if (isOpen(now, hours)) return
-  await Attendance.updateMany({ date: pktDateKey(now), status: { $in: ['checked_in', 'on_break'] }, checkInAt: { $lt: new Date(now.getTime() - 30 * 60_000) } }, { status: 'checked_out', checkOutAt: now })
+  // 30 minutes of grace after the LATEST check-in (agents who re-check-in late are not thrown out at once).
+  const cutoff = new Date(now.getTime() - 30 * 60_000)
+  const due = await Attendance.find({ date: pktDateKey(now), status: { $in: ['checked_in', 'on_break'] }, $or: [{ lastCheckInAt: { $lt: cutoff } }, { lastCheckInAt: null, checkInAt: { $lt: cutoff } }] }).select('_id userId').lean()
+  if (!due.length) return
+  await Attendance.updateMany({ _id: { $in: due.map((a) => a._id) } }, { status: 'checked_out', checkOutAt: now })
+  for (const a of due) await notify({ userIds: [a.userId], type: 'auto_checked_out', title: 'You were checked out — the office is closed', body: 'Check in again if you are still working.', link: '/dashboard', dedupeKey: `auto_out:${a._id}:${now.toISOString().slice(0, 13)}` })
 }

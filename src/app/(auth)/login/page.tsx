@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { ActionForm } from '@/components/common/action-form'
 import { TextField } from '@/components/common/fields'
 import { getSessionUser } from '@/server/auth/session'
+import { safeNext } from '@/server/auth/guards'
 import { loginAction } from '@/server/actions'
 import { connectDb } from '@/server/db/connection'
 import { User } from '@/server/db/models'
@@ -14,12 +15,13 @@ export default async function LoginPage(props: PageProps<'/login'>) {
   if (await getSessionUser()) redirect('/dashboard')
   const { next } = await props.searchParams
   await connectDb()
-  const needsSetup = !(await User.exists({ role: 'admin', passwordHash: { $exists: true } }))
+  const needsSetup = !(await User.exists({ role: { $in: ['admin', 'super_admin'] }, passwordHash: { $exists: true }, deletedAt: null }))
+  const target = typeof next === 'string' ? safeNext(next) : '/dashboard'
   return (
     <div className="space-y-4">
       <h1 className="font-heading text-xl font-semibold">Sign in</h1>
       <ActionForm action={loginAction}>
-        <input type="hidden" name="next" value={typeof next === 'string' ? next : ''} />
+        <input type="hidden" name="next" value={target} />
         <TextField label="Username or email" name="login" autoComplete="username" required autoCapitalize="none" />
         <TextField label="Password" name="password" type="password" autoComplete="current-password" required />
         <Button type="submit" size="xl" className="w-full">

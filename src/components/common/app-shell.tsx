@@ -111,9 +111,14 @@ function SideLink({ item, active }: { item: NavItem; active: boolean }) {
 
 function UserBlock({ role, userName, className }: { role: Role; userName: string; className?: string }) {
   return (
-    <div className={cn('flex items-center justify-between gap-2 text-sm', className)}>
-      <span className="truncate font-medium">{userName}</span>
-      <StatusBadge {...ROLE_META[role]} size="sm" />
+    <div className={cn('space-y-1 text-sm', className)}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate font-medium">{userName}</span>
+        <StatusBadge {...ROLE_META[role]} size="sm" />
+      </div>
+      <Link href="/change-password" className="flex min-h-11 items-center text-sidebar-foreground/80 underline-offset-4 hover:underline">
+        Change password
+      </Link>
     </div>
   )
 }

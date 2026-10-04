@@ -32,6 +32,7 @@ import {
   SHADING_LEVELS,
   STAGES,
   TRADING_CUSTOMER_TYPES,
+  CLOSE_REVIEW_STATUSES,
 } from '@/domain/constants'
 import { isE164 } from '@/lib/phone'
 import { auditFields, defineModel, insertOnly, softDelete } from '@/server/db/plugins'
@@ -158,6 +159,12 @@ const leadSchema = new Schema(
     closedAt: { type: Date, default: null },
     lostReason: { type: String, enum: LOST_REASONS, default: null },
     wonValuePkr: { type: Number, min: 0, default: null },
+    /** Agent-closed leads (won / lost / Dead) wait for a manager. Won counts in sales only when approved. */
+    closeReview: {
+      status: { type: String, enum: CLOSE_REVIEW_STATUSES, default: 'none' },
+      by: { type: ObjectId, ref: 'User', default: null },
+      at: { type: Date, default: null },
+    },
     receivedAt: { type: Date, required: true },
     /** Arrival, or next opening time for night/holiday leads. */
     assignableAt: { type: Date, required: true },
@@ -240,6 +247,7 @@ const contactAttemptSchema = new Schema(
 contactAttemptSchema.index({ leadId: 1, serverTapAt: -1 })
 contactAttemptSchema.index({ agentId: 1, serverTapAt: -1 })
 contactAttemptSchema.index({ proofStatus: 1, 'review.status': 1 })
+contactAttemptSchema.index({ 'proof.phash': 1 }, { partialFilterExpression: { 'proof.phash': { $type: 'string' } } })
 
 const followUpSchema = new Schema(
   {
@@ -276,6 +284,8 @@ const visitSchema = new Schema(
   {
     leadId: { type: ObjectId, ref: 'Lead', default: null },
     contactId: { type: ObjectId, ref: 'Contact', default: null },
+    /** Department that owns the visit (from the lead, else the creator) — managers only see their own. */
+    departmentId: { type: ObjectId, ref: 'Department', default: null },
     customerName: { type: String, required: true, trim: true },
     phone: { type: String, required: true, validate: { validator: (v: string) => isE164(v), message: 'phone must be E.164' } },
     address: { type: String, default: '' },
@@ -297,6 +307,7 @@ const visitSchema = new Schema(
 visitSchema.plugin(auditFields)
 visitSchema.plugin(softDelete)
 visitSchema.index({ agentId: 1, status: 1 })
+visitSchema.index({ departmentId: 1, status: 1 })
 visitSchema.index({ status: 1, scheduledAt: 1 })
 
 export const Visit = defineModel('Visit', visitSchema)

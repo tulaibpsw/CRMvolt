@@ -1,3 +1,4 @@
+import { redirect } from 'next/navigation'
 import { LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AppShell } from '@/components/common/app-shell'
@@ -8,6 +9,8 @@ import { logoutAction } from '@/server/actions'
 
 export default async function CrmLayout({ children }: LayoutProps<'/'>) {
   const user = await requireUser()
+  // Password chosen by an admin/manager: the person must set their own before using the app.
+  if (user.mustChangePassword) redirect('/change-password')
   return (
     <AppShell
       role={user.role}

@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { connection } from 'next/server'
 import { Button } from '@/components/ui/button'
 import { ActionForm } from '@/components/common/action-form'
 import { TextField } from '@/components/common/fields'
@@ -8,10 +9,11 @@ import { User } from '@/server/db/models'
 
 export const metadata = { title: 'First-time setup' }
 
-/** Creates the first admin. Needs MASTER_KEY from .env.local; disabled once an admin exists. */
+/** Creates the first super admin. Needs MASTER_KEY; disabled once an admin exists (checked on every visit). */
 export default async function SetupPage() {
+  await connection()
   await connectDb()
-  if (await User.exists({ role: 'admin', passwordHash: { $exists: true } })) redirect('/login')
+  if (await User.exists({ role: { $in: ['admin', 'super_admin'] }, passwordHash: { $exists: true }, deletedAt: null })) redirect('/login')
   return (
     <div className="space-y-4">
       <div>

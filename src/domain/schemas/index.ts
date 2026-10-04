@@ -88,17 +88,25 @@ export const attemptOutcomeInput = z
     result: z.enum(CALL_RESULTS),
     response: z.enum(CUSTOMER_RESPONSES).optional(),
     remarks: optionalText(2000),
+    /** Optional: empty = the automatic plan (1st call → +1 day → +3 days). Must be in the next 30 days. */
     nextFollowUpAt: z.coerce.date().optional(),
     durationSec: z.number().int().min(0).max(36_000).optional(),
     closeLead: z.boolean().default(false),
+    /** Sale value when the customer said YES (deal_won). */
+    wonValuePkr: z.number().int().min(1, 'Enter the sale value').max(1_000_000_000).optional(),
     leftAt: z.coerce.date().optional(),
     returnedAt: z.coerce.date().optional(),
   })
   .superRefine((v, ctx) => {
     if (v.result === 'connected' && !v.response) ctx.addIssue({ code: 'custom', path: ['response'], message: 'What did the customer say?' })
     if (v.result !== 'connected' && v.response) ctx.addIssue({ code: 'custom', path: ['response'], message: 'Only for connected calls' })
-    if (!v.closeLead && v.result !== 'could_not_call' && !v.nextFollowUpAt) {
-      ctx.addIssue({ code: 'custom', path: ['nextFollowUpAt'], message: 'Set the next follow-up time' })
+    if (v.response === 'deal_won' && !v.wonValuePkr) ctx.addIssue({ code: 'custom', path: ['wonValuePkr'], message: 'Enter the sale value (PKR)' })
+    const closing = v.closeLead || v.response === 'not_interested' || v.response === 'already_has_solar' || v.response === 'deal_won' || v.result === 'wrong_number'
+    if (closing && (v.remarks ?? '').trim().length < 5) ctx.addIssue({ code: 'custom', path: ['remarks'], message: 'Write what the customer said (at least a few words)' })
+    if (v.nextFollowUpAt) {
+      const ms = v.nextFollowUpAt.getTime() - Date.now()
+      if (ms < -5 * 60_000) ctx.addIssue({ code: 'custom', path: ['nextFollowUpAt'], message: 'The follow-up time is in the past' })
+      if (ms > 30 * 86_400_000) ctx.addIssue({ code: 'custom', path: ['nextFollowUpAt'], message: 'Follow up within 30 days' })
     }
   })
 

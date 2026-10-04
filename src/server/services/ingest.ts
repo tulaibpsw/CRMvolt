@@ -61,7 +61,10 @@ export async function ingestLead(input: IngestInput): Promise<IngestResult> {
   const dept = department ? await DepartmentModel.findOne({ code: department }).lean() : null
   const team = dept ? await Team.findOne({ departmentId: dept._id }).lean() : null
 
-  const altPhones = (input.altPhones ?? []).map((p) => normalizePhone(p)).filter((p): p is string => !!p && p !== phone)
+  const altCandidates = [...new Set((input.altPhones ?? []).map((p) => normalizePhone(p)).filter((p): p is string => !!p && p !== phone))]
+  // A second number that already belongs to another customer is left off (it would clash with that contact).
+  const taken = altCandidates.length ? new Set((await Contact.find({ phones: { $in: altCandidates } }).select('phones').lean()).flatMap((c) => c.phones)) : new Set<string>()
+  const altPhones = altCandidates.filter((p) => !taken.has(p))
   const whatsapp = normalizePhone(input.whatsapp) ?? phone
   let contact = await Contact.findOne({ phones: phone })
   if (!contact) {

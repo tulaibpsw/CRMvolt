@@ -1,5 +1,5 @@
 import { Coffee, LogIn, LogOut, Play } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { SubmitButton } from '@/components/common/submit-button'
 import { AttendanceBadge } from '@/components/crm/badges'
 import type { AttendanceStatus } from '@/domain/constants'
 import { en } from '@/i18n/en'
@@ -14,11 +14,15 @@ export interface CheckInCardProps {
   onCheckIn?: FormAction
   onCheckOut?: FormAction
   onToggleBreak?: FormAction
+  /** Field agents: wording about site visits instead of leads. */
+  forVisits?: boolean
 }
 
 /** Agent shift card. Uses plain <form action> so it works without client JavaScript. */
-export function CheckInCard({ status, since, onCheckIn, onCheckOut, onToggleBreak }: CheckInCardProps) {
-  const hint = status === 'checked_in' ? en.checkIn.checkedInHint : status === 'on_break' ? en.checkIn.onBreakHint : en.checkIn.notCheckedIn
+export function CheckInCard({ status, since, onCheckIn, onCheckOut, onToggleBreak, forVisits }: CheckInCardProps) {
+  const hint = forVisits
+    ? status === 'checked_out' ? en.checkIn.visitsNotCheckedIn : en.checkIn.visitsCheckedIn
+    : status === 'checked_in' ? en.checkIn.checkedInHint : status === 'on_break' ? en.checkIn.onBreakHint : en.checkIn.notCheckedIn
   return (
     <section className="space-y-3 rounded-xl bg-card p-4 text-card-foreground ring-1 ring-foreground/10">
       <div className="flex items-center justify-between gap-2">
@@ -32,24 +36,24 @@ export function CheckInCard({ status, since, onCheckIn, onCheckOut, onToggleBrea
       <div className="grid grid-cols-2 gap-2">
         {status === 'checked_out' ? (
           <form action={onCheckIn} className="col-span-2">
-            <Button type="submit" size="xl" className="w-full" disabled={!onCheckIn}>
+            <SubmitButton size="xl" className="w-full" disabled={!onCheckIn} pendingText="Checking in…">
               <LogIn data-icon="inline-start" />
               {en.checkIn.checkIn}
-            </Button>
+            </SubmitButton>
           </form>
         ) : (
           <>
             <form action={onToggleBreak}>
-              <Button type="submit" variant="outline" size="touch" className="w-full" disabled={!onToggleBreak}>
+              <SubmitButton variant="outline" size="touch" className="w-full" disabled={!onToggleBreak}>
                 {status === 'on_break' ? <Play data-icon="inline-start" /> : <Coffee data-icon="inline-start" />}
                 {status === 'on_break' ? en.checkIn.endBreak : en.checkIn.startBreak}
-              </Button>
+              </SubmitButton>
             </form>
             <form action={onCheckOut}>
-              <Button type="submit" variant="secondary" size="touch" className="w-full" disabled={!onCheckOut}>
+              <SubmitButton variant="secondary" size="touch" className="w-full" disabled={!onCheckOut}>
                 <LogOut data-icon="inline-start" />
                 {en.checkIn.checkOut}
-              </Button>
+              </SubmitButton>
             </form>
           </>
         )}

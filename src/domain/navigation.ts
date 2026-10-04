@@ -1,4 +1,4 @@
-import { CalendarClock, LayoutDashboard, List, MapPin, Settings, ShieldCheck, SquareKanban, Users, type LucideIcon } from 'lucide-react'
+import { Building2, CalendarClock, LayoutDashboard, List, MapPin, Settings, ShieldCheck, SquareKanban, Users, type LucideIcon } from 'lucide-react'
 import type { Role } from '@/domain/constants'
 import { en } from '@/i18n/en'
 
@@ -12,14 +12,15 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: readonly NavItem[] = [
-  { href: '/dashboard', label: en.nav.dashboard, icon: LayoutDashboard, roles: ['admin', 'manager', 'agent', 'field_agent'], mobile: true },
-  { href: '/leads', label: en.nav.leads, icon: List, roles: ['admin', 'manager', 'agent'], mobile: true },
+  { href: '/dashboard', label: en.nav.dashboard, icon: LayoutDashboard, roles: ['super_admin', 'admin', 'manager', 'agent', 'field_agent'], mobile: true },
+  { href: '/leads', label: en.nav.leads, icon: List, roles: ['super_admin', 'admin', 'manager', 'agent'], mobile: true },
   { href: '/follow-ups', label: en.nav.followUps, icon: CalendarClock, roles: ['manager', 'agent'], mobile: true },
-  { href: '/visits', label: en.nav.visits, icon: MapPin, roles: ['admin', 'manager', 'field_agent'], mobile: true },
-  { href: '/pipeline', label: en.nav.pipeline, icon: SquareKanban, roles: ['admin', 'manager'], mobile: true },
-  { href: '/team', label: en.nav.team, icon: Users, roles: ['admin', 'manager'], mobile: false },
-  { href: '/review', label: en.nav.review, icon: ShieldCheck, roles: ['admin', 'manager'], mobile: false },
-  { href: '/settings', label: en.nav.settings, icon: Settings, roles: ['admin'], mobile: false },
+  { href: '/visits', label: en.nav.visits, icon: MapPin, roles: ['super_admin', 'admin', 'manager', 'field_agent'], mobile: true },
+  { href: '/pipeline', label: en.nav.pipeline, icon: SquareKanban, roles: ['super_admin', 'admin', 'manager'], mobile: true },
+  { href: '/team', label: en.nav.team, icon: Users, roles: ['super_admin', 'admin', 'manager'], mobile: false },
+  { href: '/review', label: en.nav.review, icon: ShieldCheck, roles: ['super_admin', 'admin', 'manager'], mobile: false },
+  { href: '/settings', label: en.nav.settings, icon: Settings, roles: ['super_admin', 'admin', 'manager'], mobile: false },
+  { href: '/admin', label: en.nav.admin, icon: Building2, roles: ['super_admin', 'admin'], mobile: false },
 ]
 
 export function navItemsFor(role: Role): NavItem[] {

@@ -44,7 +44,10 @@ Phase 1 costs $0: Vercel Hobby, Atlas M0 (512 MB), Cloudinary free plan (private
 - Server Components by default; `'use client'` only for state, effects or browser APIs.
 - Database code lives only in `src/server/**`. Pages and Server Actions call services; components never import models.
 - Components receive view models (`src/domain/view-models.ts`), never Mongoose documents.
-- Every query goes through `scopeFilter(user)` (admin = all, manager = own department, agent = own leads). Never trust ids/roles from the client.
+- Roles: super_admin (owner: everything + manages managers/admins) ⊃ admin ⊃ manager (own department) ⊃ agent (own leads) · field_agent (own visits). `requireRole('admin')` also admits super_admin.
+- **Actions load records only through `src/server/auth/guards.ts`** (`loadLeadFor(user, id, 'view'|'work'|'manage')`, `loadVisitFor`, `loadManagedUser`). Never `Lead.findById(idFromClient)` in an action. Queries combine scope with `$and: [scope, filter]` so a filter can never widen the scope. Never trust ids/roles from the client.
+- Errors shown to users: throw `UserError('plain words')`; anything else becomes "Something went wrong". Actions that can fail return `ActionState` and are used with `<ActionForm>`; plain `<form action>` buttons use `<SubmitButton>` (spinner, no double tap).
+- Anti-fraud rules (do not weaken): agents cannot set won/lost/late stages; agent closes (won/lost/Dead/junk) set `closeReview: pending` + flag `lead_closed` and count in sales only after a manager OK; phone-reported times are trusted only inside [tap, now]; one result per attempt (atomic claim).
 - Multi-document changes run in `withTransaction` and write an `activities` entry (+ `audit_logs` for users/settings/money). Side effects (push, HTTP) only after commit.
 - Webhooks and cron routes are idempotent (unique keys, lease locks).
 
@@ -66,7 +69,8 @@ Phase 1 costs $0: Vercel Hobby, Atlas M0 (512 MB), Cloudinary free plan (private
 
 ## 9. Security rules
 - Every Server Action and route handler checks the session and role first.
-- Verify webhook signatures (Meta `X-Hub-Signature-256`) and the cron secret.
+- Verify webhook signatures (Meta `X-Hub-Signature-256`) and the cron secret (constant-time, `src/server/http/cron-auth.ts`).
+- Login/setup are rate-limited (`src/server/services/rate-limit.ts`); passwords set by someone else force a change at first sign-in (`mustChangePassword`); `passwordProblem()` refuses weak passwords. Redirect targets go through `safeNext()`.
 - Auth is our own (no auth library): scrypt password hashes, sessions in Mongo (`sessions`, token hash only) behind the httpOnly `volton_session` cookie. First admin via `/setup` + `MASTER_KEY`.
 - The service worker (`public/sw.js`) caches only static files — never pages, API responses or customer data. Bump its `VERSION` when you change it.
 - Secrets only in env vars; never commit `.env*` except `.env.example`. Never log phone numbers, CNICs or message text.

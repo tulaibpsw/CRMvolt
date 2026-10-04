@@ -17,6 +17,8 @@ export interface SessionUser {
   departmentId: string | null
   departmentCode: Department | null
   managerId: string | null
+  /** Password was set by someone else — must choose their own before using the app. */
+  mustChangePassword: boolean
 }
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex')
@@ -60,6 +62,7 @@ export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
     departmentId: user.departmentId ? String(user.departmentId) : null,
     departmentCode: (department?.code as Department | undefined) ?? null,
     managerId: user.managerId ? String(user.managerId) : null,
+    mustChangePassword: !!user.mustChangePassword,
   }
 })
 
@@ -71,14 +74,18 @@ export async function requireUser(): Promise<SessionUser> {
 }
 
 export class ForbiddenError extends Error {
+  readonly userFacing = true
   constructor(message = 'You do not have permission to do this.') {
     super(message)
+    this.name = 'ForbiddenError'
   }
 }
 
+/** Signed-in user with one of the roles. Anyone else is sent to the dashboard with a "no access" notice (pages and actions). */
 export async function requireRole(...roles: Role[]): Promise<SessionUser> {
   const user = await requireUser()
-  if (!roles.includes(user.role)) throw new ForbiddenError()
+  const allowed = roles.includes(user.role) || (user.role === 'super_admin' && roles.includes('admin'))
+  if (!allowed) redirect('/dashboard?notice=no-access')
   return user
 }
 

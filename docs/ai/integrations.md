@@ -5,7 +5,7 @@
 - `/api/cron/sheet-pull` every minute (cron-job.org) with a lease lock, plus "Pull now" in Settings. Modes: `live` (new rows → round-robin), `history` (old rows, quiet, pre-assigned by the Sheet's "Call Agent" first name), `skip` (start from now).
 - Headers: blank → "Column A", repeats → "Comment (2)". Detection = admin overrides → exact aliases → "contains" rules (Meta form questions). Everything else → `lead.extra`; unrecognised form answers are kept in `extra` as text.
 - Dates: "10/3/26" = month/day/year (Google); first number > 12 → day/month/year. All Pakistan time.
-- **Duplicate guard = unique `source.rowKey`** (Meta lead ID, else hash of tab + phone + date). Cursor per tab in `settings.sheet_config`.
+- **Rows are tracked by key in `sheetrows`** (Meta lead ID, else hash of tab + phone + date) — no row counter, so deleted/sorted/late-filled rows lose nothing. Each row is ingested on its own (try/catch); a failing row is retried 3 times, then listed in Settings. The first live pull of a tab waits until an admin picks "history" or "start from now".
 
 ## WhatsApp Cloud API (M6)
 - Phase 1: Meta's free test number (≤ 5 verified recipients). Use a System User token, not the 24 h token.
@@ -18,7 +18,7 @@
 
 ## Cron / timers (M4)
 - Vercel Hobby cron runs once a day → cron-job.org (free) calls `/api/cron/tick` and `/api/cron/sheet-pull` every minute with `Authorization: Bearer $CRON_SECRET`. App polling is the backup clock.
-- Each run takes a lease in `locks`; jobs are idempotent (`dedupeKey`); handlers re-check lead state.
+- Each run takes a lease in `locks`; jobs are idempotent (`dedupeKey`); handlers re-check lead state and that the job belongs to the CURRENT assignment. The tick also retries stored WhatsApp webhook events that failed (up to 5 times).
 
 ## File storage (M5) — Cloudinary (free plan)
 - Account keys: `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` (server only — never `NEXT_PUBLIC_`).
@@ -27,6 +27,7 @@
 - Compress images on the phone to ~150 KB; folder per lead: `volton/leads/<leadId>/<category>`. Skip videos (free-plan credits).
 
 ## Auth
+- Roles and dashboards: super admin → `/admin` (company overview, managers & admins, system health, audit). First owner: `/setup` with MASTER_KEY or `npm run create-super-admin -- <email> <password>`.
 - Own code, no library: `src/server/auth/*`. scrypt hashes; random session token in the httpOnly `volton_session` cookie, only its SHA-256 stored in `sessions` (30 days, TTL index). `proxy.ts` only checks the cookie exists — pages/actions call `requireUser`/`requireRole`, and data goes through `leadScope`/`visitScope`/`userScope`.
 - First admin: `/setup` with `MASTER_KEY`. Admin creates everyone else in Settings → Users.
 
@@ -35,6 +36,9 @@
 - `public/sw.js`: network-only for pages + `/offline.html` fallback; cache-first only for `/_next/static`, `/icons`, `/brand`. Registered in production only. Served with no-cache headers (`next.config.ts`).
 - Android shows a real "Install app" button; iPhone (Safari) has none — the banner explains Share → Add to Home Screen.
 - PWA files are public in `proxy.ts` (manifest, sw.js, offline.html, icons).
+
+## Brand colours
+- Settings → Appearance (admin/super admin) saves `settings.theme {brand, ink}`; the root layout injects CSS variables from `src/styles/runtime-theme.ts`, which computes readable text colours. Presets live there too.
 
 ## Database
 - Atlas M0 (512 MB, no automatic backups) → nightly `mongodump` via GitHub Actions. `connectDb()` caches the connection and calls `attachDatabasePool`.

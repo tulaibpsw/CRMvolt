@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
+import { ActionForm } from '@/components/common/action-form'
 import { PageHeader } from '@/components/common/page-header'
 import { EmptyState } from '@/components/common/states'
 import { AttemptCard } from '@/components/crm/attempt-card'
@@ -9,13 +10,13 @@ import { getReviewQueue } from '@/server/services/queries'
 
 export const metadata = { title: 'Proof review' }
 
-/** Flagged attempts first (too fast, never left the app, logged off duty), then screenshots to check. */
+/** Closes to approve and flagged attempts first, then random spot checks, then screenshots to glance at. */
 export default async function ReviewPage() {
   const user = await requireRole('admin', 'manager')
   const queue = await getReviewQueue(user)
   return (
     <>
-      <PageHeader title="Proof review" description="Check suspicious attempts. Also call back ~3 customers per agent each week to confirm." />
+      <PageHeader title="Proof review" description="OK = approve (a WON close then counts in sales). Dispute = the lead re-opens and goes to another agent. For 'Spot check', call the customer to confirm the call happened." />
       {queue.length === 0 ? <EmptyState title="Nothing to review" /> : null}
       <div className="grid gap-4 md:grid-cols-2">
         {queue.map(({ leadId, leadNo, attempt }) => (
@@ -24,16 +25,18 @@ export default async function ReviewPage() {
               {leadNo}
             </Link>
             <AttemptCard attempt={attempt} />
-            <form action={reviewAttemptAction} className="flex gap-2">
-              <input type="hidden" name="attemptId" value={attempt.id} />
-              <input name="note" aria-label="Note" placeholder="Note (optional)" className="h-11 min-w-0 flex-1 rounded-lg border border-input bg-card px-3 text-base outline-none md:text-sm" />
-              <Button type="submit" name="decision" value="reviewed" size="touch">
-                OK
-              </Button>
-              <Button type="submit" name="decision" value="disputed" variant="destructive" size="touch">
-                Dispute
-              </Button>
-            </form>
+            <ActionForm action={reviewAttemptAction}>
+              <div className="flex gap-2">
+                <input type="hidden" name="attemptId" value={attempt.id} />
+                <input name="note" maxLength={500} aria-label="Note" placeholder="Note (needed to dispute)" className="h-11 min-w-0 flex-1 rounded-lg border border-input bg-card px-3 text-base outline-none md:text-sm" />
+                <Button type="submit" name="decision" value="reviewed" size="touch">
+                  OK
+                </Button>
+                <Button type="submit" name="decision" value="disputed" variant="destructive" size="touch">
+                  Dispute
+                </Button>
+              </div>
+            </ActionForm>
           </div>
         ))}
       </div>

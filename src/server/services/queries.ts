@@ -7,7 +7,7 @@ import { formatPkrCompact } from '@/lib/money'
 import { connectDb } from '@/server/db/connection'
 import { Activity, Attendance, Contact, ContactAttempt, Department as DepartmentModel, FollowUp, Lead, Message, Notification, Team, User, Visit } from '@/server/db/models'
 import type { SessionUser } from '@/server/auth/session'
-import { leadScope, visitScope } from '@/server/auth/scope'
+import { isAdminRole, leadScope, visitScope } from '@/server/auth/scope'
 import { oid } from '@/server/services/common'
 
 const iso = (d?: Date | null) => (d ? new Date(d).toISOString() : undefined)
@@ -54,7 +54,8 @@ function toSummary(lead: unknown, maps: Awaited<ReturnType<typeof lookups>>, use
     leadNo: l.leadNo,
     name: contact?.name ?? '—',
     phone: contact?.phones?.[0] ?? '',
-    maskPhone: false,
+    // Agents see the number only after accepting (stops cherry-picking and copying numbers of leads they will not work).
+    maskPhone: user.role === 'agent' && state !== 'accepted',
     department: (maps.dept.get(String(l.departmentId)) ?? 'INSTALLATION') as Department,
     stage: l.stage as Stage,
     status: l.status as LeadStatus,
@@ -97,12 +98,12 @@ export async function listLeads(user: SessionUser, params: LeadListParams): Prom
     lost: { status: 'lost' },
     unreachable: { status: { $in: ['unreachable', 'junk'] } },
   }
-  const filter: Record<string, unknown> = { ...scope, ...views[params.view ?? 'all'] }
-  if (params.stage) filter.stage = params.stage
-  if (params.agentId) filter['assignment.agentId'] = oid(params.agentId)
+  const extra: Record<string, unknown> = { ...views[params.view ?? 'all'] }
+  if (params.stage) extra.stage = params.stage
+  if (params.agentId && user.role !== 'agent' && Types.ObjectId.isValid(params.agentId)) extra['assignment.agentId'] = oid(params.agentId)
   if (params.department) {
     const dept = await DepartmentModel.findOne({ code: params.department }).lean()
-    if (dept && user.role === 'admin') filter.departmentId = dept._id
+    if (dept && isAdminRole(user.role)) extra.departmentId = dept._id
   }
   if (params.q?.trim()) {
     const q = params.q.trim()
@@ -112,14 +113,16 @@ export async function listLeads(user: SessionUser, params: LeadListParams): Prom
     if (digits.length >= 4) contactFilter.push({ phones: new RegExp(digits.replace(/^0/, '').slice(-10)) })
     const contacts = await Contact.find({ $or: contactFilter }).select('_id').limit(200).lean()
     or.push({ contactId: { $in: contacts.map((c) => c._id) } })
-    filter.$or = or
+    extra.$or = or
   }
+  // $and keeps the user's scope even when a view/filter uses the same field.
+  const filter: Record<string, unknown> = { $and: [scope, extra] }
   const sortField = params.sort === 'followup' ? 'nextFollowUpAt' : params.sort === 'attempts' ? 'attemptCount' : 'receivedAt'
   const page = Math.max(1, params.page ?? 1)
   const [docs, total, countEntries] = await Promise.all([
     Lead.find(filter).sort({ [sortField]: params.dir === 'asc' ? 1 : -1 }).skip((page - 1) * PAGE_SIZE).limit(PAGE_SIZE).lean(),
     Lead.countDocuments(filter),
-    Promise.all(LEAD_VIEWS.map(async (v) => [v, await Lead.countDocuments({ ...scope, ...views[v] })] as const)),
+    Promise.all(LEAD_VIEWS.map(async (v) => [v, await Lead.countDocuments({ $and: [scope, views[v]] })] as const)),
   ])
   const maps = await lookups(docs)
   return { rows: docs.map((d) => toSummary(d, maps, user)), total, counts: Object.fromEntries(countEntries) as Record<LeadView, number> }
@@ -136,15 +139,15 @@ export async function getLeadDetail(id: string, user: SessionUser) {
     ContactAttempt.find({ leadId: lead._id }).sort({ serverTapAt: -1 }).lean(),
     FollowUp.find({ leadId: lead._id }).sort({ dueAt: -1 }).lean(),
     Activity.find({ leadId: lead._id }).sort({ at: -1 }).limit(100).lean(),
-    Message.find({ contactId: lead.contactId }).sort({ at: 1 }).limit(200).lean(),
+    Message.find(user.role === 'agent' ? { leadId: lead._id } : { contactId: lead.contactId, $or: [{ leadId: lead._id }, { leadId: null }] }).sort({ at: 1 }).limit(200).lean(),
     Visit.find({ leadId: lead._id, deletedAt: null }).sort({ createdAt: -1 }).lean(),
-    Lead.find({ contactId: lead.contactId, _id: { $ne: lead._id } }).select('leadNo departmentId status').lean(),
+    Lead.find({ $and: [{ contactId: lead.contactId, _id: { $ne: lead._id } }, leadScope(user)] }).select('leadNo departmentId status').lean(),
   ])
   const people = new Map((await User.find({ _id: { $in: [...attempts.map((a) => a.agentId), ...activities.map((a) => a.actorId).filter(Boolean), ...messages.map((m) => m.sentByUserId).filter(Boolean)] } }).select('name').lean()).map((u) => [String(u._id), u.name]))
   const summary = toSummary(lead, maps, user)
   const detail: LeadDetail = {
     ...summary,
-    altPhones: contact?.phones?.slice(1) ?? [],
+    altPhones: summary.maskPhone ? [] : (contact?.phones?.slice(1) ?? []),
     city: contact?.city ?? undefined,
     area: contact?.area ?? undefined,
     campaignName: lead.source?.campaignName ?? undefined,
@@ -180,7 +183,7 @@ export async function getLeadDetail(id: string, user: SessionUser) {
   }))
   return {
     lead: detail,
-    raw: { departmentId: lead.departmentId ? String(lead.departmentId) : null, site: lead.site ?? {}, trading: lead.trading ?? {}, extra: (lead.extra ?? {}) as Record<string, string>, lostReason: lead.lostReason, pendingAttempt: attemptViews.find((a) => !a.loggedAt && a.agent.id === user.id)?.id ?? null },
+    raw: { departmentId: lead.departmentId ? String(lead.departmentId) : null, site: lead.site ?? {}, trading: lead.trading ?? {}, extra: (lead.extra ?? {}) as Record<string, string>, lostReason: lead.lostReason, closeReview: (lead.closeReview?.status ?? 'none') as string, wonValuePkr: lead.wonValuePkr ?? null, pendingAttempt: attemptViews.find((a) => !a.loggedAt && a.agent.id === user.id)?.id ?? null },
     attempts: attemptViews,
     followUps: followUps.map((f) => ({ id: String(f._id), leadId: String(f.leadId), leadName: detail.name, number: f.number, dueAt: iso(f.dueAt)!, status: f.status, isOverdue: f.status === 'pending' && f.dueAt < new Date() }) as FollowUpView),
     activities: activities.map((a) => ({ id: String(a._id), type: a.type, at: iso(a.at)!, actor: a.actorId ? people.get(String(a.actorId)) : undefined, data: (a.data ?? {}) as Record<string, unknown> })),
@@ -204,8 +207,10 @@ export async function listFollowUps(user: SessionUser): Promise<FollowUpView[]> 
 export async function getKpis(user: SessionUser): Promise<KpiItem[]> {
   await connectDb()
   const scope = leadScope(user)
-  const count = (extra: Record<string, unknown>) => Lead.countDocuments({ ...scope, ...extra })
-  const [total, isNew, unassigned, assigned, accepted, called, notCalled, interested, followUp, quotationSent, inProcess, won, lost, value] = await Promise.all([
+  const count = (extra: Record<string, unknown>) => Lead.countDocuments({ $and: [scope, extra] })
+  // Won counts only after a manager approved an agent's close (closeReview pending = not yet).
+  const approvedWon = { status: 'won', 'closeReview.status': { $ne: 'pending' } }
+  const [total, isNew, unassigned, assigned, accepted, called, notCalled, interested, followUp, quotationSent, inProcess, won, lost, value, wonPending, dead] = await Promise.all([
     count({}),
     count({ stage: 'new', status: 'open' }),
     count({ status: 'open', 'assignment.state': { $in: ['unassigned', 'waiting', 'manager_window'] } }),
@@ -217,9 +222,11 @@ export async function getKpis(user: SessionUser): Promise<KpiItem[]> {
     count({ status: 'open', nextFollowUpAt: { $ne: null } }),
     count({ stage: 'quotation_sent' }),
     count({ stage: { $in: ['quotation_pending', 'negotiation'] }, status: 'open' }),
-    count({ status: 'won' }),
+    count(approvedWon),
     count({ status: 'lost' }),
-    Lead.aggregate<{ v: number }>([{ $match: { ...scope, status: 'won' } }, { $group: { _id: null, v: { $sum: { $ifNull: ['$wonValuePkr', 0] } } } }]),
+    Lead.aggregate<{ v: number }>([{ $match: { $and: [scope, approvedWon] } }, { $group: { _id: null, v: { $sum: { $ifNull: ['$wonValuePkr', 0] } } } }]),
+    count({ status: 'won', 'closeReview.status': 'pending' }),
+    count({ status: { $in: ['unreachable', 'junk'] } }),
   ])
   const item = (key: KpiKey, v: string | number, hint?: string, comingIn?: number): KpiItem => ({ key, value: v, hint, comingIn })
   return [
@@ -230,8 +237,8 @@ export async function getKpis(user: SessionUser): Promise<KpiItem[]> {
     item('interestedFollowUp', `${interested} / ${followUp}`),
     item('quotationSent', quotationSent),
     item('inProcess', inProcess),
-    item('wonSales', won),
-    item('lost', lost),
+    item('wonSales', won, wonPending ? `+${wonPending} waiting for manager approval` : undefined),
+    item('lost', lost, dead ? `Dead / wrong number: ${dead}` : undefined),
     item('salesValue', formatPkrCompact(value[0]?.v ?? 0)),
     item('commission', 0, undefined, 4),
   ]
@@ -248,7 +255,7 @@ export async function getTeamBoard(user: SessionUser): Promise<TeamMemberView[]>
     Attendance.find({ userId: { $in: ids }, date: pktDateKey(new Date()) }).lean(),
     Lead.aggregate<{ _id: Types.ObjectId; n: number }>([{ $match: { 'assignment.agentId': { $in: ids }, status: 'open' } }, { $group: { _id: '$assignment.agentId', n: { $sum: 1 } } }]),
     Lead.aggregate<{ _id: Types.ObjectId; n: number }>([{ $match: { 'assignment.agentId': { $in: ids }, status: 'open', 'assignment.state': 'assigned' } }, { $group: { _id: '$assignment.agentId', n: { $sum: 1 } } }]),
-    ContactAttempt.aggregate<{ _id: Types.ObjectId; at: Date }>([{ $match: { agentId: { $in: ids } } }, { $group: { _id: '$agentId', at: { $max: '$serverTapAt' } } }]),
+    ContactAttempt.aggregate<{ _id: Types.ObjectId; at: Date }>([{ $match: { agentId: { $in: ids }, outcomeAt: { $ne: null } } }, { $group: { _id: '$agentId', at: { $max: '$outcomeAt' } } }]),
   ])
   const by = <T extends { _id: unknown }>(rows: T[]) => new Map(rows.map((r) => [String(r._id), r]))
   const att = new Map(attendance.map((a) => [String(a.userId), a]))
@@ -287,10 +294,14 @@ export async function getTeams(user: SessionUser) {
 export async function getReviewQueue(user: SessionUser) {
   await connectDb()
   const leadIds = (await Lead.find(leadScope(user)).select('_id').lean()).map((l) => l._id)
-  const attempts = await ContactAttempt.find({ leadId: { $in: leadIds }, outcomeAt: { $ne: null }, 'review.status': 'pending', $or: [{ proofStatus: 'flagged' }, { proofStatus: 'evidenced' }] })
-    .sort({ proofStatus: 1, serverTapAt: -1 })
-    .limit(100)
-    .lean()
+  const base = { leadId: { $in: leadIds }, outcomeAt: { $ne: null }, 'review.status': 'pending' }
+  // 1) closes waiting for approval and flagged attempts, 2) spot checks, 3) screenshots to glance at.
+  const [urgent, spot, evidenced] = await Promise.all([
+    ContactAttempt.find({ ...base, $or: [{ proofStatus: 'flagged' }, { flags: 'lead_closed' }] }).sort({ serverTapAt: -1 }).limit(100).lean(),
+    ContactAttempt.find({ ...base, flags: 'spot_check', proofStatus: { $ne: 'flagged' } }).sort({ serverTapAt: -1 }).limit(30).lean(),
+    ContactAttempt.find({ ...base, proofStatus: 'evidenced', flags: { $nin: ['lead_closed', 'spot_check'] } }).sort({ serverTapAt: -1 }).limit(30).lean(),
+  ])
+  const attempts = [...urgent, ...spot, ...evidenced]
   const people = new Map((await User.find({ _id: { $in: attempts.map((a) => a.agentId) } }).select('name').lean()).map((u) => [String(u._id), u.name]))
   const leads = new Map((await Lead.find({ _id: { $in: attempts.map((a) => a.leadId) } }).select('leadNo').lean()).map((l) => [String(l._id), l.leadNo]))
   return attempts.map((a) => ({

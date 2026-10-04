@@ -15,7 +15,9 @@
     "ai:check": "node scripts/check-ai.mjs",
     "seed": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/seed.ts",
     "db:indexes": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/sync-indexes.ts",
-    "ui:shots": "node scripts/screenshot-catalog.mjs"
+    "ui:shots": "node scripts/screenshot-catalog.mjs",
+    "create-super-admin": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/create-super-admin.ts",
+    "clear-demo-data": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/clear-demo-data.ts"
   },
   "dependencies": {
     "@vercel/functions": "^3.9.11",

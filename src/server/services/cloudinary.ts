@@ -1,4 +1,5 @@
 import 'server-only'
+import { UserError } from '@/server/services/common'
 import { createHash } from 'node:crypto'
 import { getServerEnv } from '@/lib/env'
 
@@ -8,7 +9,7 @@ import { getServerEnv } from '@/lib/env'
  */
 function creds() {
   const env = getServerEnv()
-  if (!env.CLOUDINARY_CLOUD_NAME || !env.CLOUDINARY_API_KEY || !env.CLOUDINARY_API_SECRET) throw new Error('Cloudinary keys are missing in .env.local')
+  if (!env.CLOUDINARY_CLOUD_NAME || !env.CLOUDINARY_API_KEY || !env.CLOUDINARY_API_SECRET) throw new UserError('Cloudinary keys are missing in .env.local')
   return { cloud: env.CLOUDINARY_CLOUD_NAME, key: env.CLOUDINARY_API_KEY, secret: env.CLOUDINARY_API_SECRET }
 }
 
@@ -21,11 +22,31 @@ export function signParams(params: Record<string, string | number>, secret: stri
   return createHash('sha1').update(toSign + secret).digest('hex')
 }
 
+export const PROOF_FORMATS = 'jpg,jpeg,png,webp,heic'
+
+/** Signed upload: private, images only, into the caller's own folder. The phone must send exactly these fields. */
 export function uploadSignature(folder: string) {
   const { cloud, key, secret } = creds()
-  const timestamp = Math.floor(Date.now() / 1000)
-  const params = { folder, timestamp, type: 'authenticated' }
-  return { cloudName: cloud, apiKey: key, timestamp, folder, type: 'authenticated', signature: signParams(params, secret) }
+  const params = { folder, timestamp: Math.floor(Date.now() / 1000), type: 'authenticated', allowed_formats: PROOF_FORMATS }
+  return { cloudName: cloud, fields: { ...params, api_key: key, signature: signParams(params, secret) } }
+}
+
+export const isCloudinaryConfigured = () => {
+  const env = getServerEnv()
+  return !!(env.CLOUDINARY_CLOUD_NAME && env.CLOUDINARY_API_KEY && env.CLOUDINARY_API_SECRET)
+}
+
+/** Look up a private upload (Admin API) — proves the file exists, where it is, when it was made and its content hash. */
+export async function getPrivateImage(publicId: string): Promise<{ etag: string; createdAt: Date; bytes: number; format: string } | null> {
+  const { cloud, key, secret } = creds()
+  const res = await fetch(`https://api.cloudinary.com/v1_1/${cloud}/resources/image/authenticated/${publicId.split('/').map(encodeURIComponent).join('/')}`, {
+    headers: { Authorization: `Basic ${Buffer.from(`${key}:${secret}`).toString('base64')}` },
+    cache: 'no-store',
+  })
+  if (!res.ok) return null
+  const body = (await res.json()) as { etag?: string; created_at?: string; bytes?: number; format?: string }
+  if (!body.etag || !body.created_at) return null
+  return { etag: body.etag, createdAt: new Date(body.created_at), bytes: body.bytes ?? 0, format: body.format ?? 'jpg' }
 }
 
 /** Expiring download link for a private file (default 10 minutes). */

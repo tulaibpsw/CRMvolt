@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ActionForm } from '@/components/common/action-form'
+import { SubmitButton } from '@/components/common/submit-button'
 import { CheckboxField, SelectField, TextAreaField, TextField } from '@/components/common/fields'
 import { PageHeader } from '@/components/common/page-header'
 import { SectionCard } from '@/components/common/section-card'
@@ -22,6 +23,8 @@ import { requireUser } from '@/server/auth/session'
 import { isManagerOrAdmin } from '@/server/auth/scope'
 import { acceptLeadAction, addNoteAction, assignLeadAction, changeStageAction, createVisitAction, reopenLeadAction, saveSiteAction, transferDepartmentAction } from '@/server/actions'
 import { getLeadDetail, getTeamBoard } from '@/server/services/queries'
+import { AGENT_STAGES } from '@/server/services/leads'
+import { formatPkrCompact } from '@/lib/money'
 
 function describe(type: string, d: Record<string, unknown>): string {
   if (type === 'attempt_logged') {
@@ -55,19 +58,24 @@ export default async function LeadPage(props: PageProps<'/leads/[id]'>) {
     <>
       <PageHeader title={lead.name} backHref="/leads" />
       <LeadHeader lead={lead} />
+      {raw.closeReview === 'pending' ? (
+        <p role="status" className="rounded-xl bg-tone-warning-soft px-4 py-3 text-sm font-medium text-tone-warning-soft-foreground">
+          {lead.status === 'won' ? `Marked WON (${formatPkrCompact(raw.wonValuePkr ?? 0)}) by the agent` : 'Closed by the agent'} — waiting for the manager to check it in Proof review.
+        </p>
+      ) : null}
 
       {lead.status === 'open' && (mine || manager) ? (
         <SectionCard title="Contact the customer" description="Every tap is saved as proof. After the call or chat, log what happened.">
           {mine && lead.assignmentState === 'assigned' ? (
             <form action={acceptLeadAction}>
               <input type="hidden" name="leadId" value={lead.id} />
-              <Button type="submit" size="xl" className="w-full">
+              <SubmitButton size="xl" className="w-full" pendingText="Accepting…">
                 Accept this lead
-              </Button>
+              </SubmitButton>
             </form>
           ) : (
             <div className="space-y-3">
-              <ContactActions leadId={lead.id} pendingAttemptId={raw.pendingAttempt} />
+              <ContactActions leadId={lead.id} pendingAttemptId={raw.pendingAttempt} attemptCount={lead.attemptCount} />
             </div>
           )}
         </SectionCard>
@@ -76,7 +84,7 @@ export default async function LeadPage(props: PageProps<'/leads/[id]'>) {
       {manager ? (
         <SectionCard title="Manage">
           <div className="grid gap-4 md:grid-cols-3">
-            <form action={assignLeadAction} className="space-y-2">
+            <ActionForm action={assignLeadAction} className="space-y-2">
               <input type="hidden" name="leadId" value={lead.id} />
               <SelectField
                 label="Assign to"
@@ -88,37 +96,52 @@ export default async function LeadPage(props: PageProps<'/leads/[id]'>) {
               <Button type="submit" variant="outline" size="touch" className="w-full">
                 Assign
               </Button>
-            </form>
-            <form action={transferDepartmentAction} className="space-y-2">
+            </ActionForm>
+            <ActionForm action={transferDepartmentAction} className="space-y-2">
               <input type="hidden" name="leadId" value={lead.id} />
-              <SelectField label="Move to department" name="department" defaultValue={lead.department} options={DEPARTMENTS.map((d) => ({ value: d, label: DEPARTMENT_META[d].label }))} />
+              <SelectField label="Move to department" name="department" defaultValue={DEPARTMENTS.find((d) => d !== lead.department)} options={DEPARTMENTS.filter((d) => d !== lead.department).map((d) => ({ value: d, label: DEPARTMENT_META[d].label }))} />
+              <TextField label="Why?" name="reason" required minLength={3} placeholder="e.g. wants panels only" />
               <Button type="submit" variant="outline" size="touch" className="w-full">
                 Move
               </Button>
-            </form>
+            </ActionForm>
             {lead.status !== 'open' ? (
-              <form action={reopenLeadAction} className="self-end">
+              <ActionForm action={reopenLeadAction} className="self-end">
                 <input type="hidden" name="leadId" value={lead.id} />
                 <Button type="submit" variant="outline" size="touch" className="w-full">
                   Reopen lead
                 </Button>
-              </form>
+              </ActionForm>
             ) : null}
           </div>
         </SectionCard>
       ) : null}
 
-      {mine || manager ? (
+      {manager ? (
         <SectionCard title="Stage">
-          <form action={changeStageAction} className="grid gap-3 md:grid-cols-4 md:items-end">
-            <input type="hidden" name="leadId" value={lead.id} />
-            <SelectField label="Stage" name="stage" defaultValue={lead.stage} options={PIPELINES[lead.department].map((s) => ({ value: s, label: STAGE_META[s].label }))} />
-            <SelectField label="If lost — why" name="lostReason" placeholder="—" options={optionsFor(LOST_REASONS, en.lostReason)} />
-            <TextField label="If won — value (PKR)" name="wonValuePkr" type="number" min={0} inputMode="numeric" />
-            <Button type="submit" variant="secondary" size="touch">
-              Update stage
-            </Button>
-          </form>
+          <ActionForm action={changeStageAction}>
+            <div className="grid gap-3 md:grid-cols-4 md:items-end">
+              <input type="hidden" name="leadId" value={lead.id} />
+              <SelectField label="Stage" name="stage" defaultValue={lead.stage} options={PIPELINES[lead.department].map((s) => ({ value: s, label: STAGE_META[s].label }))} />
+              <SelectField label="If lost — why" name="lostReason" placeholder="—" options={optionsFor(LOST_REASONS, en.lostReason)} />
+              <TextField label="If won — value (PKR)" name="wonValuePkr" type="number" min={0} inputMode="numeric" />
+              <Button type="submit" variant="secondary" size="touch">
+                Update stage
+              </Button>
+            </div>
+          </ActionForm>
+        </SectionCard>
+      ) : mine && lead.status === 'open' && lead.assignmentState === 'accepted' ? (
+        <SectionCard title="Stage" description="For a sale (WON) or 'not interested', save it from the call result — your manager checks it.">
+          <ActionForm action={changeStageAction}>
+            <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+              <input type="hidden" name="leadId" value={lead.id} />
+              <SelectField label="Stage" name="stage" defaultValue={AGENT_STAGES.find((s) => s === lead.stage) ?? AGENT_STAGES[0]} options={AGENT_STAGES.map((s) => ({ value: s, label: STAGE_META[s].label }))} />
+              <Button type="submit" variant="secondary" size="touch">
+                Update stage
+              </Button>
+            </div>
+          </ActionForm>
         </SectionCard>
       ) : null}
 
@@ -132,13 +155,15 @@ export default async function LeadPage(props: PageProps<'/leads/[id]'>) {
         </TabsList>
 
         <TabsContent value="timeline" className="space-y-4 pt-4">
-          <form action={addNoteAction} className="flex gap-2">
-            <input type="hidden" name="leadId" value={lead.id} />
-            <input name="text" aria-label="Add a note" placeholder="Add a note…" className="h-11 min-w-0 flex-1 rounded-lg border border-input bg-card px-3 text-base outline-none md:text-sm" />
-            <Button type="submit" variant="outline" size="touch">
-              Add
-            </Button>
-          </form>
+          {user.role !== 'field_agent' ? (
+            <form action={addNoteAction} className="flex gap-2">
+              <input type="hidden" name="leadId" value={lead.id} />
+              <input name="text" required maxLength={2000} aria-label="Add a note" placeholder="Add a note…" className="h-11 min-w-0 flex-1 rounded-lg border border-input bg-card px-3 text-base outline-none md:text-sm" />
+              <SubmitButton variant="outline" size="touch" pendingText="…">
+                Add
+              </SubmitButton>
+            </form>
+          ) : null}
           {activities.length === 0 ? (
             <EmptyState />
           ) : (
@@ -208,7 +233,7 @@ export default async function LeadPage(props: PageProps<'/leads/[id]'>) {
                 <StatusBadge {...VISIT_STATUS_META[v.status as VisitStatus]} size="sm" />
               </div>
             ))}
-            {user.role !== 'field_agent' ? (
+            {manager || (mine && lead.assignmentState === 'accepted' && lead.status === 'open') ? (
               <ActionForm action={createVisitAction}>
                 <input type="hidden" name="leadId" value={lead.id} />
                 <input type="hidden" name="customerName" value={lead.name} />

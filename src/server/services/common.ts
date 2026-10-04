@@ -4,6 +4,13 @@ import type { ActivityType, JobKind, NotificationType } from '@/domain/constants
 import { Activity, Job, Notification } from '@/server/db/models'
 
 export const oid = (id: string | Types.ObjectId) => (typeof id === 'string' ? new Types.ObjectId(id) : id)
+
+/** An error whose message is safe and helpful to show to the user. Anything else is shown as a generic message. */
+export class UserError extends Error {
+  readonly userFacing = true
+}
+const isUserFacing = (error: unknown): error is Error =>
+  error instanceof Error && ((error as { userFacing?: boolean }).userFacing === true || error.name === 'ForbiddenError')
 export const isDuplicateKey = (error: unknown) => typeof error === 'object' && error !== null && 'code' in error && (error as { code: number }).code === 11000
 
 /** Append to the lead timeline (insert-only). */
@@ -72,5 +79,7 @@ export function errorState(error: unknown): ActionState {
     const issues = (error as { issues: { path: PropertyKey[]; message: string }[] }).issues
     return { ok: false, message: issues[0]?.message, fieldErrors: Object.fromEntries(issues.map((i) => [String(i.path[0] ?? 'form'), i.message])) }
   }
-  return { ok: false, message: error instanceof Error ? error.message : 'Something went wrong' }
+  if (isUserFacing(error)) return { ok: false, message: error.message }
+  console.error('[action]', error)
+  return { ok: false, message: 'Something went wrong — please try again.' }
 }

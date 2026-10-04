@@ -25,6 +25,7 @@ avatar · badge · button · card · checkbox · dialog · dropdown-menu · inpu
 | CountdownTimer (client) | countdown-timer.tsx | `deadline (ISO)` · hook `useNow()` | Live "Due in / Overdue" |
 | ConfirmDialog (client) | confirm-dialog.tsx | `trigger, title, description?, confirmLabel?, destructive?, onConfirm` | Confirm risky actions; `onConfirm` may be a Server Action |
 | ActionTile | action-tile.tsx | `href, label, icon, count?, tone?` | Big shortcut to waiting work ("5 leads to assign") — top of dashboards. `count 0` = calm |
+| SubmitButton (client) | submit-button.tsx | Button props + `pendingText?` | Submit button for plain server-action forms: spinner + disabled while saving |
 | ActionForm (client) | action-form.tsx | `action, onSuccess?, children` | Every form posting to a Server Action (`useActionState`, shows errors) |
 | TextField / TextAreaField / SelectField / CheckboxField | fields.tsx | `label, name, …input props` | Labelled ≥ 44 px form fields |
 | ServiceWorker / InstallPrompt (client) | pwa.tsx | — | SW registration (root layout) and the "Install app" banner (Android button, iPhone Share steps) |
@@ -49,6 +50,7 @@ avatar · badge · button · card · checkbox · dialog · dropdown-menu · inpu
 | ChatPanel (client) | chat-panel.tsx | `leadId, messages` — WhatsApp thread + send box |
 | NotificationBell (client) | notification-bell.tsx | — polls `/api/me/poll` every 20 s |
 | QuickAddLead (client) | quick-add-lead.tsx | — manual lead sheet |
+| UserAdminList | user-admin-list.tsx | `users, viewer` — users with the actions the viewer may use (deactivate, temp password, remove) |
 
 View-model types: `src/domain/view-models.ts`. Demo data: `src/dev/fixtures.ts`.
 

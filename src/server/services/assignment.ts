@@ -1,11 +1,11 @@
 import 'server-only'
-import type { Types } from 'mongoose'
+import { Types } from 'mongoose'
 import type { AssignmentMethod } from '@/domain/constants'
 import { pktDateKey } from '@/lib/dates-pkt'
 import { connectDb } from '@/server/db/connection'
 import { Attendance, Lead, LeadAssignment, Team, User } from '@/server/db/models'
 import { withTransaction } from '@/server/db/transaction'
-import { cancelJobs, logActivity, notify, oid, scheduleJob } from '@/server/services/common'
+import { cancelJobs, logActivity, notify, oid, scheduleJob, UserError } from '@/server/services/common'
 
 type Id = Types.ObjectId | string
 
@@ -29,7 +29,7 @@ export async function eligibleAgents(team: { memberOrder: Types.ObjectId[]; maxP
   if (ids.length === 0) return new Set()
   const today = pktDateKey(new Date())
   const [active, present, pending] = await Promise.all([
-    User.find({ _id: { $in: ids }, isActive: true, deletedAt: null, autoPausedAt: null }).select('_id').lean(),
+    User.find({ _id: { $in: ids }, role: 'agent', isActive: true, deletedAt: null, autoPausedAt: null }).select('_id').lean(),
     Attendance.find({ userId: { $in: ids }, date: today, status: 'checked_in' }).select('userId').lean(),
     Lead.aggregate<{ _id: Types.ObjectId; n: number }>([
       { $match: { 'assignment.agentId': { $in: team.memberOrder }, 'assignment.state': 'assigned', status: 'open' } },
@@ -43,7 +43,7 @@ export async function eligibleAgents(team: { memberOrder: Types.ObjectId[]; maxP
 }
 
 async function managersOf(departmentId: Id | null): Promise<string[]> {
-  const users = await User.find({ isActive: true, deletedAt: null, $or: [{ role: 'admin' }, { role: 'manager', departmentId }] }).select('_id').lean()
+  const users = await User.find({ isActive: true, deletedAt: null, $or: [{ role: { $in: ['admin', 'super_admin'] } }, { role: 'manager', departmentId }] }).select('_id').lean()
   return users.map((u) => String(u._id))
 }
 
@@ -51,9 +51,12 @@ async function managersOf(departmentId: Id | null): Promise<string[]> {
 export async function startAssignment(leadId: Id): Promise<void> {
   await connectDb()
   const lead = await Lead.findById(leadId).lean()
-  if (!lead || lead.status !== 'open' || !lead.teamId) return
-  const team = await Team.findById(lead.teamId).lean()
-  if (!team) return
+  if (!lead || lead.status !== 'open') return
+  const team = lead.teamId ? await Team.findById(lead.teamId).lean() : null
+  if (!team) {
+    await notify({ userIds: await managersOf(lead.departmentId), type: 'lead_unassigned', title: 'New lead has no team — assign it by hand', body: lead.leadNo, link: `/leads/${lead._id}`, dedupeKey: `unrouted:${lead._id}` })
+    return
+  }
   const managerIn = await Attendance.exists({ userId: team.managerId, date: pktDateKey(new Date()), status: 'checked_in' })
   const assignableAt = lead.assignableAt > new Date() ? lead.assignableAt : new Date()
 
@@ -74,6 +77,10 @@ export async function autoAssign(leadId: Id, exclude: string[] = []): Promise<st
   if (!lead0?.teamId || lead0.status !== 'open' || lead0.assignment?.state === 'accepted') return null
   const team0 = await Team.findById(lead0.teamId).lean()
   if (!team0) return null
+  if (team0.paused) {
+    await Lead.updateOne({ _id: lead0._id, status: 'open', 'assignment.state': { $ne: 'accepted' } }, { 'assignment.state': 'waiting' })
+    return null
+  }
   const eligible = await eligibleAgents(team0)
 
   const result = await withTransaction(async (session) => {
@@ -87,7 +94,9 @@ export async function autoAssign(leadId: Id, exclude: string[] = []): Promise<st
     if (!team) return null
     const next = pickNext(team.memberOrder.map(String), { lastUid: team.rr?.lastUid ? String(team.rr.lastUid) : null, lastPos: team.rr?.lastPos ?? -1 }, eligible, new Set(exclude))
     if (!next) {
-      await Lead.updateOne({ _id: lead._id }, { 'assignment.state': 'waiting' }, { session })
+      // Nobody can take it now: back to the queue, and it no longer belongs to the previous agent.
+      await Lead.updateOne({ _id: lead._id }, { 'assignment.state': 'waiting', 'assignment.agentId': null }, { session })
+      await LeadAssignment.updateMany({ leadId: lead._id, endedAt: null }, { endedAt: new Date(), reason: 'reassigned' }, { session })
       return null
     }
     const now = new Date()
@@ -114,6 +123,8 @@ export async function autoAssign(leadId: Id, exclude: string[] = []): Promise<st
 
 async function afterAssigned(leadId: Id, r: { agentId: string; assignmentId: string; acceptMin: number; contactMin: number; leadNo: string }) {
   const now = Date.now()
+  // Timers of an earlier assignment must never fire against the new agent.
+  await cancelJobs({ leadId: oid(leadId), kind: { $in: ['manager_window_end', 'accept_due', 'contact_due'] } })
   await scheduleJob('accept_due', new Date(now + r.acceptMin * 60_000), `accept_due:${r.assignmentId}`, { leadId, assignmentId: r.assignmentId })
   await scheduleJob('contact_due', new Date(now + r.contactMin * 60_000), `contact_due:${r.assignmentId}`, { leadId, assignmentId: r.assignmentId })
   await notify({ userIds: [r.agentId], type: 'lead_assigned', title: 'New lead for you — accept now', body: r.leadNo, link: `/leads/${leadId}`, dedupeKey: `assigned:${r.assignmentId}` })
@@ -122,10 +133,13 @@ async function afterAssigned(leadId: Id, r: { agentId: string; assignmentId: str
 /** Manager/admin picks the agent. Does not move the round-robin pointer. */
 export async function manualAssign(leadId: Id, agentId: string, byUserId: string, method: AssignmentMethod = 'manual'): Promise<void> {
   await connectDb()
-  const team = await Lead.findById(leadId).select('teamId').lean().then((l) => (l?.teamId ? Team.findById(l.teamId).lean() : null))
+  const target = await Lead.findById(leadId).select('teamId departmentId').lean()
+  const agent = await User.findOne({ _id: oid(agentId), role: 'agent', isActive: true, deletedAt: null }).lean()
+  if (!agent || String(agent.departmentId) !== String(target?.departmentId)) throw new UserError("Pick an active agent of this lead's department")
+  const team = target?.teamId ? await Team.findById(target.teamId).lean() : null
   const r = await withTransaction(async (session) => {
     const lead = await Lead.findById(leadId).session(session)
-    if (!lead || lead.status !== 'open') throw new Error('Lead is not open')
+    if (!lead || lead.status !== 'open') throw new UserError('Lead is not open')
     const now = new Date()
     const previous = lead.assignment?.agentId ? String(lead.assignment.agentId) : null
     await LeadAssignment.updateMany({ leadId: lead._id, endedAt: null }, { endedAt: now, reason: 'reassigned' }, { session })
@@ -135,7 +149,6 @@ export async function manualAssign(leadId: Id, agentId: string, byUserId: string
     await logActivity(lead._id, previous ? 'reassigned' : 'assigned', byUserId, { agentId, method, from: previous }, session)
     return { assignmentId: String(assignment._id), leadNo: lead.leadNo }
   })
-  await cancelJobs({ leadId: oid(leadId), kind: { $in: ['manager_window_end', 'accept_due', 'contact_due'] } })
   await afterAssigned(leadId, { agentId, assignmentId: r.assignmentId, acceptMin: team?.acceptWithinMin ?? 5, contactMin: team?.contactWithinMin ?? 15, leadNo: r.leadNo })
 }
 
@@ -147,17 +160,30 @@ export async function acceptLead(leadId: Id, userId: string): Promise<void> {
     { _id: leadId, 'assignment.agentId': oid(userId), 'assignment.state': 'assigned' },
     { $set: { 'assignment.state': 'accepted', 'assignment.acceptedAt': now } },
   )
-  if (!updated) throw new Error('This lead is not waiting for you to accept')
+  if (!updated) throw new UserError('This lead is not waiting for you to accept')
   await LeadAssignment.updateOne({ leadId: oid(leadId), agentId: oid(userId), endedAt: null }, { acceptedAt: now })
   await cancelJobs({ leadId: oid(leadId), kind: 'accept_due' })
   await logActivity(leadId, 'accepted', userId)
 }
 
-/** Assign waiting leads oldest-first while agents are eligible (on check-in, accept, close and every tick). */
-export async function drainQueue(teamId?: Id): Promise<number> {
+/** Take a lead away from its agent and put it back in the queue (deactivation, bulk move, transfer, reopen). */
+export async function resetAssignment(leadId: Id, actorId: string | null, reason: string): Promise<void> {
   await connectDb()
-  const filter: Record<string, unknown> = { status: 'open', 'assignment.state': 'waiting', assignableAt: { $lte: new Date() }, deletedAt: null }
-  if (teamId) filter.teamId = oid(teamId)
+  await Lead.updateOne({ _id: oid(leadId) }, { 'assignment.state': 'waiting', 'assignment.agentId': null, 'assignment.acceptedAt': null })
+  await LeadAssignment.updateMany({ leadId: oid(leadId), endedAt: null }, { endedAt: new Date(), reason: 'reassigned' })
+  await cancelJobs({ leadId: oid(leadId), kind: { $in: ['manager_window_end', 'accept_due', 'contact_due', 'follow_up_due', 'follow_up_overdue'] } })
+  await logActivity(leadId, 'reassigned', actorId, { reason })
+}
+
+/** Assign waiting leads oldest-first while agents are eligible (on check-in, accept, close and every tick). Paused teams are skipped. */
+export async function drainQueue(teamId?: Id | null): Promise<number> {
+  await connectDb()
+  const paused = (await Team.find({ paused: true }).select('_id').lean()).map((t) => t._id)
+  const filter: Record<string, unknown> = { status: 'open', 'assignment.state': 'waiting', assignableAt: { $lte: new Date() }, deletedAt: null, teamId: { $nin: [...paused, null] } }
+  if (teamId) {
+    if (!Types.ObjectId.isValid(String(teamId))) return 0
+    filter.teamId = { $eq: oid(teamId), $nin: paused }
+  }
   const waiting = await Lead.find(filter).sort({ receivedAt: 1 }).limit(50).select('_id teamId').lean()
   let assigned = 0
   const blocked = new Set<string>()
@@ -182,7 +208,7 @@ export async function checkIn(userId: string): Promise<void> {
   const now = new Date()
   await Attendance.updateOne(
     { userId: oid(userId), date: pktDateKey(now) },
-    { $set: { status: 'checked_in', checkOutAt: null }, $setOnInsert: { checkInAt: now, breaks: [] } },
+    { $set: { status: 'checked_in', checkOutAt: null, lastCheckInAt: now }, $setOnInsert: { checkInAt: now, breaks: [] } },
     { upsert: true },
   )
   await User.updateOne({ _id: oid(userId) }, { autoPausedAt: null })
@@ -197,7 +223,7 @@ export async function toggleBreak(userId: string): Promise<void> {
   await connectDb()
   const now = new Date()
   const row = await Attendance.findOne({ userId: oid(userId), date: pktDateKey(now) })
-  if (!row || row.status === 'checked_out') throw new Error('Check in first')
+  if (!row || row.status === 'checked_out') throw new UserError('Check in first')
   if (row.status === 'on_break') {
     const open = row.breaks.find((b: { endAt?: Date | null }) => !b.endAt)
     if (open) open.endAt = now

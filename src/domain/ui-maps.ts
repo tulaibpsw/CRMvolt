@@ -59,6 +59,7 @@ export interface StatusMeta {
 type MetaMap<T extends string> = Record<T, StatusMeta>
 
 export const ROLE_META: MetaMap<C.Role> = {
+  super_admin: { label: en.role.super_admin, tone: 'danger', icon: ShieldCheck },
   admin: { label: en.role.admin, tone: 'brand', icon: ShieldCheck },
   manager: { label: en.role.manager, tone: 'info', icon: UserCheck },
   agent: { label: en.role.agent, tone: 'neutral', icon: User },
@@ -129,6 +130,7 @@ export const CUSTOMER_RESPONSE_META: MetaMap<C.CustomerResponse> = {
   not_interested: { label: en.customerResponse.not_interested, tone: 'danger', icon: CircleX },
   call_back_requested: { label: en.customerResponse.call_back_requested, tone: 'info', icon: PhoneCall },
   already_has_solar: { label: en.customerResponse.already_has_solar, tone: 'neutral', icon: Ban },
+  deal_won: { label: en.customerResponse.deal_won, tone: 'success', icon: Trophy },
 }
 
 export const PROOF_STATUS_META: MetaMap<C.ProofStatus> = {
@@ -146,6 +148,10 @@ export const PROOF_FLAG_META: MetaMap<C.ProofFlag> = {
   batch_logged: { label: en.proofFlag.batch_logged, tone: 'warning', icon: ClipboardList },
   off_duty: { label: en.proofFlag.off_duty, tone: 'warning', icon: LogOut },
   outlier_no_answer: { label: en.proofFlag.outlier_no_answer, tone: 'warning', icon: PhoneMissed },
+  lead_closed: { label: en.proofFlag.lead_closed, tone: 'danger', icon: Flag },
+  duration_mismatch: { label: en.proofFlag.duration_mismatch, tone: 'warning', icon: Timer },
+  spot_check: { label: en.proofFlag.spot_check, tone: 'info', icon: ClipboardList },
+  repeat_could_not_call: { label: en.proofFlag.repeat_could_not_call, tone: 'warning', icon: PhoneMissed },
 }
 
 export const REVIEW_STATUS_META: MetaMap<C.ReviewStatus> = {
@@ -264,6 +270,8 @@ export const LABEL_ONLY_ENUMS = {
 /** Enums never shown to users. */
 export const INTERNAL_ENUMS = [
   'MESSAGE_DIRECTIONS',
+  'CLOSE_REVIEW_STATUSES',
+  'SHEET_ROW_STATUSES',
   'ACTIVE_VISIT_STATUSES',
   'FOLLOW_UP_GAP_DAYS',
   'MESSAGE_TYPES',

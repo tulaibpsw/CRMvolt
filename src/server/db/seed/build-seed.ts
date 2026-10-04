@@ -236,7 +236,7 @@ export async function seedDemoData(now: Date = new Date()): Promise<SeedSummary>
         result,
         response: result === 'connected' ? (status === 'lost' ? 'not_interested' : 'interested') : null,
         remarks: result === 'connected' ? 'Discussed requirements and next steps.' : null,
-        proofStatus: flagged ? 'flagged' : channelUsed === 'whatsapp_chat' ? 'verified' : rand() < 0.5 ? 'evidenced' : 'logged',
+        proofStatus: flagged ? 'flagged' : channelUsed === 'whatsapp_chat' ? 'verified' : 'logged',
         flags: flagged ? ['never_left_app', 'too_fast'] : [],
       })
       counts.attempts++
@@ -266,7 +266,7 @@ export async function seedDemoData(now: Date = new Date()): Promise<SeedSummary>
   await Counter.create({ _id: COUNTERS.lead, seq: counts.leads })
 
   // Field agents + a few site visits, balanced by kW (Excel Visits logic).
-  const field = await User.create(FIELD_AGENTS.map((a) => ({ name: a.name, email: `${a.name.split(' ')[0].toLowerCase()}.field@volton.test`, username: a.name.toLowerCase().replace(/s+/g, '.'), phone: a.phone, role: 'field_agent', departmentId: installation._id, passwordHash })))
+  const field = await User.create(FIELD_AGENTS.map((a) => ({ name: a.name, email: `${a.name.split(' ')[0].toLowerCase()}.field@volton.test`, username: a.name.toLowerCase().trim().replace(/\s+/g, '.'), phone: a.phone, role: 'field_agent', departmentId: installation._id, passwordHash })))
   const visitLeads = await Lead.find({ stage: { $in: ['site_survey', 'quotation_pending'] } }).limit(6).lean()
   const load = new Map<string, number>(field.map((f: { _id: unknown }) => [String(f._id), 0]))
   for (const [i, l] of visitLeads.entries()) {
@@ -274,7 +274,7 @@ export async function seedDemoData(now: Date = new Date()): Promise<SeedSummary>
     const kw = [5, 10, 16, 8, 12, 25][i % 6]
     const agentId = [...load.entries()].sort((a, b) => a[1] - b[1])[0][0]
     load.set(agentId, (load.get(agentId) ?? 0) + kw)
-    await Visit.create({ leadId: l._id, contactId: l.contactId, customerName: c?.name ?? 'Customer', phone: c?.phones[0] ?? '+923000000000', address: `${c?.city ?? 'Lahore'}`, kw, scheduledAt: new Date(now.getTime() + (i + 1) * 86_400_000), agentId, status: 'assigned', assignedAt: now })
+    await Visit.create({ leadId: l._id, contactId: l.contactId, departmentId: l.departmentId, customerName: c?.name ?? 'Customer', phone: c?.phones[0] ?? '+923000000000', address: `${c?.city ?? 'Lahore'}`, kw, scheduledAt: new Date(now.getTime() + (i + 1) * 86_400_000), agentId, status: 'assigned', assignedAt: now })
   }
 
   return { departments: 2, users: 1 + 2 + 8 + field.length, ...counts }

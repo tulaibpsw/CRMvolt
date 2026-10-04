@@ -20,3 +20,30 @@ export async function verifyPassword(password: string, stored: string | null | u
   const actual = await scrypt(password, Buffer.from(saltHex, 'hex'), expected.length)
   return expected.length === actual.length && timingSafeEqual(expected, actual)
 }
+
+/** Same work for unknown users as for real ones, so response time does not reveal which usernames exist. */
+const DUMMY_HASH = `${'0'.repeat(32)}:${'0'.repeat(128)}`
+export async function verifyPasswordOrDummy(password: string, stored: string | null | undefined): Promise<boolean> {
+  if (!stored) {
+    await verifyPassword(password, DUMMY_HASH)
+    return false
+  }
+  return verifyPassword(password, stored)
+}
+
+/** Constant-time string compare (master key, secrets). */
+export function safeEqual(a: string, b: string): boolean {
+  const x = Buffer.from(a)
+  const y = Buffer.from(b)
+  return x.length === y.length && timingSafeEqual(x, y)
+}
+
+const WEAK = ['volton@123', 'password', 'password1', '12345678', '123456789', 'qwerty123', 'volton123', 'pakistan']
+/** Returns a problem message, or null when the password is acceptable. */
+export function passwordProblem(password: string, username?: string): string | null {
+  if (password.length < 8) return 'Use at least 8 characters'
+  if (password.length > 128) return 'Too long'
+  if (WEAK.includes(password.toLowerCase())) return 'This password is too common — choose another'
+  if (username && password.toLowerCase().includes(username.toLowerCase())) return 'Do not use your username in the password'
+  return null
+}

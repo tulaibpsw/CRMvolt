@@ -3,6 +3,7 @@ import { AlarmClock, CalendarClock, ListChecks, MapPin, UserPlus, Users } from '
 import { Button } from '@/components/ui/button'
 import { ActionTile } from '@/components/common/action-tile'
 import { PageHeader } from '@/components/common/page-header'
+import { SubmitButton } from '@/components/common/submit-button'
 import { SectionCard } from '@/components/common/section-card'
 import { EmptyState } from '@/components/common/states'
 import { StatusBadge } from '@/components/common/status-badge'
@@ -20,20 +21,33 @@ import { getKpis, getTeamBoard, listFollowUps, listLeads, listVisits } from '@/s
 
 export const metadata = { title: 'Dashboard' }
 
-export default async function DashboardPage() {
+const NOTICES: Record<string, { text: string; tone: 'warning' | 'success' }> = {
+  'no-access': { text: 'You do not have access to that page.', tone: 'warning' },
+  'password-changed': { text: 'Password saved. Use your new password next time.', tone: 'success' },
+}
+
+export default async function DashboardPage(props: PageProps<'/dashboard'>) {
   const user = await requireUser()
+  const { notice } = await props.searchParams
+  const banner = typeof notice === 'string' ? NOTICES[notice] : undefined
+  const noticeEl = banner ? (
+    <p role="status" className={banner.tone === 'success' ? 'rounded-xl bg-tone-success-soft px-4 py-3 text-sm font-medium text-tone-success-soft-foreground' : 'rounded-xl bg-tone-warning-soft px-4 py-3 text-sm font-medium text-tone-warning-soft-foreground'}>
+      {banner.text}
+    </p>
+  ) : null
   const now = new Date()
   const greeting = `Assalam o Alaikum, ${user.name.split(' ')[0]}`
 
   if (user.role === 'agent' || user.role === 'field_agent') {
     const attendance = await getAttendance(user.id)
-    const shift = <CheckInCard status={(attendance?.status as 'checked_in') ?? 'checked_out'} since={attendance?.checkInAt?.toISOString()} onCheckIn={checkInAction} onCheckOut={checkOutAction} onToggleBreak={toggleBreakAction} />
+    const shift = <CheckInCard status={(attendance?.status as 'checked_in') ?? 'checked_out'} since={attendance?.checkInAt?.toISOString()} onCheckIn={checkInAction} onCheckOut={checkOutAction} onToggleBreak={toggleBreakAction} forVisits={user.role === 'field_agent'} />
 
     if (user.role === 'field_agent') {
       const visits = (await listVisits(user)).filter((v) => v.status === 'assigned' || v.status === 'rescheduled')
       return (
         <>
           <PageHeader title={greeting} description="Your site visits" />
+          {noticeEl}
           {shift}
           <ActionTile href="/visits" label="Site visits to do" icon={MapPin} count={visits.length} tone="info" />
           <SectionCard title={`Visits to do (${visits.length})`} actions={<Button asChild variant="outline" size="touch"><Link href="/visits">Open visits</Link></Button>}>
@@ -61,6 +75,7 @@ export default async function DashboardPage() {
     return (
       <>
         <PageHeader title={greeting} description="Your leads and follow-ups for today" />
+        {noticeEl}
         {shift}
         <div className="grid grid-cols-2 gap-3">
           <ActionTile href="/leads?view=mine" label="My leads" icon={ListChecks} count={mine.total} tone="brand" />
@@ -74,7 +89,7 @@ export default async function DashboardPage() {
                   <LeadCard lead={lead} href={`/leads/${lead.id}`} showAgent={false} />
                   <form action={acceptLeadAction}>
                     <input type="hidden" name="leadId" value={lead.id} />
-                    <Button type="submit" size="xl" className="w-full">Accept {lead.leadNo}</Button>
+                    <SubmitButton size="xl" className="w-full" pendingText="Accepting…">Accept {lead.leadNo}</SubmitButton>
                   </form>
                 </div>
               ))}
@@ -94,7 +109,8 @@ export default async function DashboardPage() {
   const checkedIn = board.filter((m) => m.attendance === 'checked_in').length
   return (
     <>
-      <PageHeader title={greeting} description={user.role === 'admin' ? 'Whole company' : `${user.departmentCode === 'TRADING' ? 'Trading' : 'Installation'} department`} />
+      <PageHeader title={greeting} description={user.role === 'admin' || user.role === 'super_admin' ? 'Whole company' : `${user.departmentCode === 'TRADING' ? 'Trading' : 'Installation'} department`} />
+      {noticeEl}
       <div className="grid gap-3 sm:grid-cols-3">
         <ActionTile href="/leads?view=unassigned" label="Leads waiting to be assigned" icon={UserPlus} count={queue.total} tone="warning" />
         <ActionTile href="/follow-ups" label="Overdue follow-ups" icon={AlarmClock} count={overdue.length} tone="danger" />

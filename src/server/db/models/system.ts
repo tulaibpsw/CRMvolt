@@ -18,6 +18,7 @@ import {
   SETTING_KEYS,
   WHATSAPP_NUMBER_STATUSES,
   WHATSAPP_OWNER_TYPES,
+  SHEET_ROW_STATUSES,
 } from '@/domain/constants'
 import { isE164 } from '@/lib/phone'
 import { defineModel, insertOnly } from '@/server/db/plugins'
@@ -29,7 +30,7 @@ const DAY_SECONDS = 24 * 60 * 60
 const auditLogSchema = new Schema(
   {
     entity: { type: String, required: true },
-    entityId: { type: ObjectId, required: true },
+    entityId: { type: ObjectId, default: null },
     action: { type: String, enum: AUDIT_ACTIONS, required: true },
     before: { type: Mixed, default: null },
     after: { type: Mixed, default: null },
@@ -69,6 +70,32 @@ const lockSchema = new Schema(
   },
   { versionKey: false },
 )
+
+/** Fixed-window counters (login / setup throttling). Removed by TTL when the window ends. */
+const rateLimitSchema = new Schema(
+  {
+    key: { type: String, required: true, unique: true },
+    count: { type: Number, default: 0 },
+    resetAt: { type: Date, required: true },
+  },
+  { versionKey: false },
+)
+rateLimitSchema.index({ resetAt: 1 }, { expireAfterSeconds: 0 })
+
+/** One row per Google Sheet row already handled. The Sheet pull skips known rowKeys, so deleted/sorted rows never lose leads. */
+const sheetRowSchema = new Schema(
+  {
+    rowKey: { type: String, required: true, unique: true },
+    tab: { type: String, required: true },
+    status: { type: String, enum: SHEET_ROW_STATUSES, required: true },
+    leadId: { type: ObjectId, ref: 'Lead', default: null },
+    tries: { type: Number, default: 0 },
+    error: { type: String, default: null },
+    sheetRow: { type: Number, default: null },
+  },
+  { timestamps: true },
+)
+sheetRowSchema.index({ tab: 1, status: 1 })
 
 const notificationSchema = new Schema(
   {
@@ -168,6 +195,7 @@ const ingestEventSchema = new Schema(
     payload: { type: Mixed, required: true },
     status: { type: String, enum: INGEST_STATUSES, default: DEFAULT_INGEST_STATUS },
     error: { type: String, default: null },
+    tries: { type: Number, default: 0 },
     receivedAt: { type: Date, required: true, default: () => new Date() },
   },
   { timestamps: false },
@@ -179,6 +207,8 @@ const counterSchema = new Schema({ _id: { type: String, required: true }, seq: {
 export const AuditLog = defineModel('AuditLog', auditLogSchema)
 export const Job = defineModel('Job', jobSchema)
 export const Lock = defineModel('Lock', lockSchema)
+export const RateLimit = defineModel('RateLimit', rateLimitSchema)
+export const SheetRow = defineModel('SheetRow', sheetRowSchema)
 export const Notification = defineModel('Notification', notificationSchema)
 export const PushSubscription = defineModel('PushSubscription', pushSubscriptionSchema)
 export const DocumentFile = defineModel('Document', documentSchema)

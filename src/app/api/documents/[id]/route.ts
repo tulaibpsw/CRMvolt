@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { Types } from 'mongoose'
 import { getSessionUser } from '@/server/auth/session'
+import { isAdminRole } from '@/server/auth/scope'
 import { connectDb } from '@/server/db/connection'
 import { ContactAttempt, DocumentFile, Lead } from '@/server/db/models'
 import { privateDownloadUrl } from '@/server/services/cloudinary'
@@ -16,8 +17,12 @@ export async function GET(_request: NextRequest, ctx: RouteContext<'/api/documen
   if (!doc) return NextResponse.json({ error: 'not found' }, { status: 404 })
   const leadId = doc.ownerType === 'attempt' ? (await ContactAttempt.findById(doc.ownerId).select('leadId').lean())?.leadId : doc.ownerId
   const lead = leadId ? await Lead.findById(leadId).select('departmentId assignment').lean() : null
-  const allowed = user.role === 'admin' || (user.role === 'manager' && String(lead?.departmentId) === user.departmentId) || String(lead?.assignment?.agentId) === user.id
+  const allowed =
+    isAdminRole(user.role) ||
+    (user.role === 'manager' && String(lead?.departmentId) === user.departmentId) ||
+    (user.role === 'agent' && String(lead?.assignment?.agentId) === user.id) ||
+    String(doc.uploadedBy) === user.id
   if (!allowed) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
-  const format = doc.mime.split('/')[1]?.replace('jpeg', 'jpg') ?? 'jpg'
+  const format = /^image\/(jpe?g|png|webp|heic)$/.test(doc.mime) ? doc.mime.split('/')[1].replace('jpeg', 'jpg') : 'jpg'
   return NextResponse.redirect(privateDownloadUrl(doc.storageKey, format))
 }

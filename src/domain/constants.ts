@@ -6,7 +6,8 @@
  */
 
 /** agent = call agent (phone/WhatsApp); field_agent = outdoor site-visit agent (Excel "Visits" tab). */
-export const ROLES = ['admin', 'manager', 'agent', 'field_agent'] as const
+/** super_admin = owner: everything an admin can do + add/remove managers and admins. */
+export const ROLES = ['super_admin', 'admin', 'manager', 'agent', 'field_agent'] as const
 export type Role = (typeof ROLES)[number]
 
 export const DEPARTMENTS = ['TRADING', 'INSTALLATION'] as const
@@ -58,7 +59,7 @@ export const CALL_RESULTS = ['connected', 'no_answer', 'busy', 'number_off', 'wr
 export type CallResult = (typeof CALL_RESULTS)[number]
 
 /** PDF §9 customer responses, step 2 (only when connected). */
-export const CUSTOMER_RESPONSES = ['interested', 'not_interested', 'call_back_requested', 'already_has_solar'] as const
+export const CUSTOMER_RESPONSES = ['interested', 'not_interested', 'call_back_requested', 'already_has_solar', 'deal_won'] as const
 export type CustomerResponse = (typeof CUSTOMER_RESPONSES)[number]
 
 export const PROOF_STATUSES = ['verified', 'evidenced', 'logged', 'flagged'] as const
@@ -72,8 +73,20 @@ export const PROOF_FLAGS = [
   'batch_logged',
   'off_duty',
   'outlier_no_answer',
+  /** Agent closed the lead (lost / Dead / junk) — a manager must check it. */
+  'lead_closed',
+  /** Typed call length is much longer than the time away from the app. */
+  'duration_mismatch',
+  /** Random sample of normal attempts for the manager's call-back check. */
+  'spot_check',
+  /** "Could not call" logged again and again on the same lead. */
+  'repeat_could_not_call',
 ] as const
 export type ProofFlag = (typeof PROOF_FLAGS)[number]
+
+/** A lead closed by an agent (won / lost / Dead) waits for a manager: won only counts in sales after approval. */
+export const CLOSE_REVIEW_STATUSES = ['none', 'pending', 'approved', 'rejected'] as const
+export type CloseReviewStatus = (typeof CLOSE_REVIEW_STATUSES)[number]
 
 export const REVIEW_STATUSES = ['pending', 'reviewed', 'disputed'] as const
 export type ReviewStatus = (typeof REVIEW_STATUSES)[number]
@@ -183,6 +196,8 @@ export const NOTIFICATION_TYPES = [
   'agent_auto_paused',
   'whatsapp_disconnected',
   'visit_assigned',
+  'lead_closed',
+  'auto_checked_out',
 ] as const
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]
 
@@ -198,13 +213,17 @@ export type WhatsAppOwnerType = (typeof WHATSAPP_OWNER_TYPES)[number]
 export const INGEST_SOURCES = ['sheet', 'whatsapp', 'website'] as const
 export type IngestSource = (typeof INGEST_SOURCES)[number]
 
+/** Google Sheet rows already handled (by rowKey) — replaces the fragile row-count cursor. */
+export const SHEET_ROW_STATUSES = ['ingested', 'skipped', 'failed'] as const
+export type SheetRowStatus = (typeof SHEET_ROW_STATUSES)[number]
+
 export const INGEST_STATUSES = ['received', 'processed', 'failed', 'ignored'] as const
 export type IngestStatus = (typeof INGEST_STATUSES)[number]
 
 export const AUDIT_ACTIONS = ['create', 'update', 'soft_delete', 'restore', 'export'] as const
 export type AuditAction = (typeof AUDIT_ACTIONS)[number]
 
-export const SETTING_KEYS = ['working_hours', 'holidays', 'sla_defaults', 'sheet_config', 'follow_up_cadence', 'routing'] as const
+export const SETTING_KEYS = ['working_hours', 'holidays', 'sla_defaults', 'sheet_config', 'follow_up_cadence', 'routing', 'theme'] as const
 export type SettingKey = (typeof SETTING_KEYS)[number]
 
 /** Meta lead-form answers (the client's real form questions). */

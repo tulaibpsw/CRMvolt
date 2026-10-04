@@ -63,6 +63,9 @@ const userSchema = new Schema(
     managerId: { type: ObjectId, ref: 'User', default: null },
     isActive: { type: Boolean, default: true },
     autoPausedAt: { type: Date, default: null },
+    /** Set when an admin/manager chose the password — the user must pick their own at next sign-in. */
+    mustChangePassword: { type: Boolean, default: false },
+    lastLoginAt: { type: Date, default: null },
   },
   { timestamps: true, collection: 'user' },
 )
@@ -77,6 +80,8 @@ const attendanceSchema = new Schema(
     date: { type: String, required: true, match: /^\d{4}-\d{2}-\d{2}$/ },
     status: { type: String, enum: ATTENDANCE_STATUSES, required: true },
     checkInAt: { type: Date, required: true },
+    /** Latest (re-)check-in today — used for the auto check-out grace period. */
+    lastCheckInAt: { type: Date, default: null },
     checkOutAt: { type: Date, default: null },
     breaks: [{ _id: false, startAt: { type: Date, required: true }, endAt: { type: Date, default: null } }],
     location: { type: new Schema({ lat: Number, lng: Number }, { _id: false }), default: undefined },

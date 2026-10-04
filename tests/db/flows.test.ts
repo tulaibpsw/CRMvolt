@@ -42,7 +42,7 @@ interface World {
 }
 
 const asSession = (u: { _id: Types.ObjectId; name: string; email: string; role: string; departmentId?: Types.ObjectId | null }, code = 'INSTALLATION'): SessionUser =>
-  ({ id: String(u._id), name: u.name, email: u.email, role: u.role, departmentId: u.departmentId ? String(u.departmentId) : null, departmentCode: code, managerId: null }) as SessionUser
+  ({ id: String(u._id), name: u.name, email: u.email, role: u.role, departmentId: u.departmentId ? String(u.departmentId) : null, departmentCode: code, managerId: null, mustChangePassword: false }) as SessionUser
 
 async function world(): Promise<World> {
   await Promise.all(ALL_MODELS.map((model) => model.collection.deleteMany({})))
@@ -149,6 +149,7 @@ describe('proof of work and the 1-1-3 follow-up plan', () => {
     await checkIn(agent.id)
     const r = await newLead()
     if (r.status !== 'created') throw new Error()
+    await acceptLead(r.leadId, agent.id)
     const { attemptId } = await tapAttempt(r.leadId, 'whatsapp_chat', agent)
     await logOutcome({ attemptId, result: 'connected', response: 'interested', closeLead: false }, agent)
     const attempt = await ContactAttempt.findById(attemptId).lean()
@@ -162,7 +163,9 @@ describe('proof of work and the 1-1-3 follow-up plan', () => {
     await checkIn(w.agents[0].id)
     const r = await newLead()
     if (r.status !== 'created') throw new Error()
-    await expect(tapAttempt(r.leadId, 'phone_call', w.agents[2])).rejects.toThrow(/cannot work/)
+    await expect(tapAttempt(r.leadId, 'phone_call', w.agents[2])).rejects.toThrow(/not found/)
+    // and the right agent must accept first
+    await expect(tapAttempt(r.leadId, 'phone_call', w.agents[0])).rejects.toThrow(/Accept the lead first/)
   })
 })
 
@@ -244,6 +247,7 @@ describe('WhatsApp webhook', () => {
     await processWebhook(value({ messages: [{ id: 'wamid.in1', from: '923009911111', timestamp: ts, type: 'text', text: { body: 'Price for 10kW?' } }] }))
     expect(await Message.countDocuments({ direction: 'in' })).toBe(1)
 
+    await acceptLead(String(lead!._id), agent.id)
     const { attemptId } = await tapAttempt(String(lead!._id), 'whatsapp_chat', agent)
     await processWebhook(value({ message_echoes: [{ id: 'wamid.out1', to: '923009911111', timestamp: ts, type: 'text', text: { body: 'Assalam o Alaikum' } }] }))
     expect((await ContactAttempt.findById(attemptId).lean())?.proofStatus).toBe('verified')

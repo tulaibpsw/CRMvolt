@@ -13,7 +13,7 @@ import { formatPhone } from '@/lib/phone'
 import { requireRole } from '@/server/auth/session'
 import { createVisitAction, updateVisitAction } from '@/server/actions'
 import { getTeamBoard, listVisits } from '@/server/services/queries'
-import { fieldAgentLoad } from '@/server/services/visits'
+import { FIELD_AGENT_VISIT_STATUSES, fieldAgentLoad } from '@/server/services/visits'
 
 export const metadata = { title: 'Site visits' }
 
@@ -57,7 +57,7 @@ export default async function VisitsPage() {
                 <TextField label="Visit date & time" name="scheduledAt" type="datetime-local" />
               </div>
               <TextField label="Address" name="address" required />
-              <TextField label="Location link" name="locationUrl" type="url" />
+              <TextField label="Location link (https://…)" name="locationUrl" type="url" />
               <TextAreaField label="Requirement" name="requirement" rows={2} />
               <Button type="submit" size="touch" className="w-full">
                 Create & assign
@@ -91,7 +91,7 @@ export default async function VisitsPage() {
                   {formatPhone(v.phone)}
                 </a>
               </Button>
-              {v.locationUrl ? (
+              {/^https:\/\//i.test(v.locationUrl) ? (
                 <Button asChild variant="outline" size="touch">
                   <a href={v.locationUrl} target="_blank" rel="noreferrer">
                     <MapPin data-icon="inline-start" />
@@ -102,15 +102,22 @@ export default async function VisitsPage() {
             </div>
             {v.feedback ? <p className="text-sm">{v.feedback}</p> : null}
             {v.status === 'assigned' || v.status === 'rescheduled' || user.role !== 'field_agent' ? (
-              <form action={updateVisitAction} className="grid gap-2 sm:grid-cols-2">
-                <input type="hidden" name="visitId" value={v.id} />
-                <SelectField label="Status" name="status" defaultValue={v.status} options={VISIT_STATUSES.map((s) => ({ value: s, label: VISIT_STATUS_META[s].label }))} />
-                <TextField label="New time (if rescheduled)" name="scheduledAt" type="datetime-local" />
-                <TextField label="Feedback" name="feedback" className="sm:col-span-2" defaultValue={v.feedback} />
-                <Button type="submit" variant="secondary" size="xl" className="sm:col-span-2">
-                  Update visit
-                </Button>
-              </form>
+              <ActionForm action={updateVisitAction}>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <input type="hidden" name="visitId" value={v.id} />
+                  <SelectField
+                    label="Status"
+                    name="status"
+                    defaultValue={user.role === 'field_agent' ? 'completed' : v.status}
+                    options={(user.role === 'field_agent' ? FIELD_AGENT_VISIT_STATUSES : VISIT_STATUSES).map((s) => ({ value: s, label: VISIT_STATUS_META[s].label }))}
+                  />
+                  <TextField label="New time (if rescheduled)" name="scheduledAt" type="datetime-local" />
+                  <TextAreaField label="What happened? (required)" name="feedback" rows={2} className="sm:col-span-2" required minLength={5} />
+                  <Button type="submit" variant="secondary" size="xl" className="sm:col-span-2">
+                    Update visit
+                  </Button>
+                </div>
+              </ActionForm>
             ) : null}
           </article>
         ))}

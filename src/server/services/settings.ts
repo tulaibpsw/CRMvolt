@@ -1,6 +1,7 @@
 import 'server-only'
 import { DEPARTMENTS, type Department, type SettingKey } from '@/domain/constants'
 import type { SheetConfig } from '@/domain/sheet-columns'
+import { DEFAULT_THEME, type ThemeColors } from '@/styles/runtime-theme'
 import { pktParts } from '@/lib/dates-pkt'
 import { connectDb } from '@/server/db/connection'
 import { Setting } from '@/server/db/models'
@@ -21,6 +22,7 @@ interface SettingTypes {
   working_hours: WorkingHours
   sheet_config: SheetConfig
   routing: RoutingConfig
+  theme: ThemeColors
 }
 
 const DEFAULTS: SettingTypes = {
@@ -30,6 +32,7 @@ const DEFAULTS: SettingTypes = {
     keywords: { INSTALLATION: ['install', 'home', 'net metering', 'video', 'kw'], TRADING: ['panel', 'inverter', 'battery', 'wholesale', 'dealer'] },
     fallback: 'INSTALLATION',
   },
+  theme: DEFAULT_THEME,
 }
 
 export async function getSetting<K extends keyof SettingTypes>(key: K): Promise<SettingTypes[K]> {
