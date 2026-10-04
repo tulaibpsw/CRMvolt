@@ -44,3 +44,21 @@
 - The insert-only guard (activities, audit logs) blocked reset wipes, so the seed and tests now wipe through the raw collection on purpose.
 - The `cn` package (shadcn's new merge tool) handles our tone classes correctly; this was verified.
 - Our own DataTable replaces TanStack Table, which moved to v9 with an unknown API, so there is no extra dependency.
+
+## Later the same day
+- **Brand:** applied the voltonsolar.com colours (gold #f7b500, ink navy #0c1a2b, leaf green #2da772, mist, sand) and fonts (Sora headings, Manrope body). The client's logo is in `public/brand/volton-logo.png`, shown with the new `BrandLogo` component. All colour pairs still pass WCAG AA.
+- **Keys:** stored in `.env.local` (git-ignored):
+  - the MongoDB URI, now named `MONGODB_URI`;
+  - a strong `AUTH_SECRET`, generated to replace the weak `JWT_SECRET`;
+  - `MASTER_KEY`;
+  - the Cloudinary keys.
+  The Pixel and GTM IDs were left out, because they belong to the public website, not the CRM.
+- **Storage:** switched from Vercel Blob to **Cloudinary** (the client already has a free account). The models' `blobKey` field is now `storageKey`.
+- **Google Sheet columns:** added `src/domain/sheet-columns.ts`.
+  - It auto-detects common and Meta headers, including long form questions.
+  - Admins can override a column's mapping or ignore a column.
+  - Unknown columns are kept on the lead as dynamic `extra`.
+  - It also builds the duplicate-guard row keys and routes leads to a department. It is ready for the client's real columns.
+- **Atlas:** the connection works; indexes are synced and demo data is seeded (60 leads, 71 attempts, 272 timeline events).
+- **GitHub:** pushed to https://github.com/tulaibpsw/CRMvolt (branch `main`).
+- **Checks:** `npm run check` passes with 173 tests.
