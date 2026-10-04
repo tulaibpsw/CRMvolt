@@ -104,8 +104,8 @@ const documentSchema = new Schema(
     fileName: { type: String, required: true },
     mime: { type: String, required: true },
     size: { type: Number, required: true, min: 0 },
-    /** Private Vercel Blob pathname — served only via short-lived signed URLs. */
-    blobKey: { type: String, required: true },
+    /** Cloudinary public_id (type 'authenticated') — served only via short-lived signed URLs. */
+    storageKey: { type: String, required: true },
     uploadedBy: { type: ObjectId, ref: 'User', required: true },
     deletedAt: { type: Date, default: null },
   },
@@ -138,7 +138,7 @@ const messageSchema = new Schema(
     direction: { type: String, enum: MESSAGE_DIRECTIONS, required: true },
     type: { type: String, enum: MESSAGE_TYPES, required: true },
     text: { type: String, default: '' },
-    mediaBlobKey: { type: String, default: null },
+    mediaStorageKey: { type: String, default: null },
     sentFrom: { type: String, enum: MESSAGE_SENDERS, required: true },
     sentByUserId: { type: ObjectId, ref: 'User', default: null },
     status: { type: String, enum: MESSAGE_STATUSES, required: true },

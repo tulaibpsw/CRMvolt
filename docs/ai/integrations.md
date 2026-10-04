@@ -13,7 +13,7 @@
 - Webhook `/api/webhooks/whatsapp`: GET verify (`hub.verify_token` → echo `hub.challenge`); POST verify `X-Hub-Signature-256` = HMAC-SHA256(app secret, **raw body**). Meta retries up to 36 h → de-dup by `waMessageId`. Store raw payloads in `ingestevents`.
 - Handle `messages` (customer), `statuses`, `smb_message_echoes` (agent typed in the Business app — Coexistence). Echo payloads have no device/agent field: attribute by the number's owner.
 - CTWA `referral` arrives only on the first inbound message: map to `lead.source.ctwa`. `source_type` is `ad`, not Facebook/Instagram.
-- Media IDs expire — copy images/documents to Blob immediately (skip video on the free tier).
+- Media IDs expire — copy images/documents to Cloudinary immediately (skip video on the free tier).
 - Coexistence limits: calls are NOT mirrored; phone must open the app every ~13 days; Calling API not available on Coexistence numbers.
 - Never use unofficial libraries (whatsapp-web.js, Baileys) — numbers get banned.
 
@@ -21,8 +21,11 @@
 - Vercel Hobby cron runs once a day → cron-job.org (free) calls `/api/cron/tick` and `/api/cron/sheet-pull` every minute with `Authorization: Bearer $CRON_SECRET`. App polling is the backup clock.
 - Each run takes a lease in `locks`; jobs are idempotent (`dedupeKey`); handlers re-check lead state.
 
-## File storage (M5)
-- Vercel Blob **private** store, free 1 GB. Upload straight from the phone with a signed URL (bypasses the 4.5 MB function body limit); download via short-lived signed URLs. Compress images to ~150 KB.
+## File storage (M5) — Cloudinary (free plan)
+- Account keys: `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` (server only — never `NEXT_PUBLIC_`).
+- Upload **straight from the phone** to Cloudinary with a server-signed upload signature (bypasses Vercel's 4.5 MB body limit). Use `type: 'authenticated'` so files are private; store the `public_id` in `storageKey`.
+- Show files only through short-lived signed delivery URLs generated on the server after the role check.
+- Compress images on the phone to ~150 KB; folder per lead: `volton/leads/<leadId>/<category>`. Skip videos (free-plan credits).
 
 ## Database
 - Atlas M0 (512 MB, no automatic backups) → nightly `mongodump` via GitHub Actions. `connectDb()` caches the connection and calls `attachDatabasePool`.

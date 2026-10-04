@@ -203,6 +203,39 @@ export type AuditAction = (typeof AUDIT_ACTIONS)[number]
 export const SETTING_KEYS = ['working_hours', 'holidays', 'sla_defaults', 'sheet_config', 'follow_up_cadence'] as const
 export type SettingKey = (typeof SETTING_KEYS)[number]
 
+/** CRM fields a Google Sheet column can map to. Unmapped columns are kept in lead.extra (dynamic columns). */
+export const SHEET_LEAD_FIELDS = [
+  'metaLeadId',
+  'submittedAt',
+  'name',
+  'phone',
+  'altPhone',
+  'whatsapp',
+  'email',
+  'city',
+  'area',
+  'address',
+  'department',
+  'campaignId',
+  'campaignName',
+  'adsetId',
+  'adsetName',
+  'adId',
+  'adName',
+  'formId',
+  'formName',
+  'platform',
+  'isOrganic',
+  'monthlyBillPkr',
+  'monthlyUnits',
+  'targetKw',
+  'propertyType',
+  'notes',
+  'agentName',
+  'status',
+] as const
+export type SheetLeadField = (typeof SHEET_LEAD_FIELDS)[number]
+
 /** Dashboard KPI tiles — labels are the PDF's exact wording (§4, §8). */
 export const KPI_KEYS = [
   'totalLeads',

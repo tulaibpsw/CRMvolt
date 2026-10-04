@@ -12,6 +12,7 @@ avatar · badge · button · card · checkbox · dialog · dropdown-menu · inpu
 ## Layer 2 — patterns (`src/components/common`)
 | Component | File | Props | Use for |
 |---|---|---|---|
+| BrandLogo | brand-logo.tsx | `height?, surface? bare\|tile, priority?` | The Volt-On logo. `tile` on light backgrounds |
 | StatusBadge | status-badge.tsx | `label, tone, icon?, size? sm\|md, variant? soft\|solid` | Every coloured status. Spread a ui-maps meta: `<StatusBadge {...STAGE_META[s]} />`. Also exports `statusBadgeVariants`, `toneTextClass` |
 | KpiTile | kpi-tile.tsx | `label, value, hint?, icon?, tone?, comingIn?` | One number; `comingIn` shows "Phase n" |
 | EmptyState / ErrorState / LoadingState | states.tsx | `title?, description?, action?` / same / `rows?, variant? list\|cards` | Every list/page state |

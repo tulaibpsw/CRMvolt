@@ -225,7 +225,7 @@ const contactAttemptSchema = new Schema(
       note: { type: String, default: null },
     },
     /** Optional recorded-calls add-on (WhatsApp Calling API). */
-    recording: { type: new Schema({ blobKey: String, sourceId: String, durationSec: Number }, { _id: false }), default: undefined },
+    recording: { type: new Schema({ storageKey: String, sourceId: String, durationSec: Number }, { _id: false }), default: undefined },
   },
   { timestamps: true },
 )

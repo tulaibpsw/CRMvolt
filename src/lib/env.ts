@@ -4,6 +4,11 @@ const serverEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   MONGODB_URI: z.string().startsWith('mongodb', 'MONGODB_URI must start with mongodb:// or mongodb+srv://').optional(),
   ENABLE_UI_CATALOG: z.enum(['true', 'false']).default('false'),
+  AUTH_SECRET: z.string().min(32, 'AUTH_SECRET must be at least 32 characters').optional(),
+  MASTER_KEY: z.string().min(8).optional(),
+  CLOUDINARY_CLOUD_NAME: z.string().optional(),
+  CLOUDINARY_API_KEY: z.string().optional(),
+  CLOUDINARY_API_SECRET: z.string().optional(),
 })
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>

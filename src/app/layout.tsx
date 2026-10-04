@@ -1,10 +1,12 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
+import { Manrope, Sora } from 'next/font/google'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { en } from '@/i18n/en'
 import './globals.css'
 
-const inter = Inter({ variable: '--font-inter', subsets: ['latin'], display: 'swap' })
+// Same fonts as voltonsolar.com: Manrope (body) and Sora (headings).
+const manrope = Manrope({ variable: '--font-manrope', subsets: ['latin'], display: 'swap' })
+const sora = Sora({ variable: '--font-sora', subsets: ['latin'], display: 'swap' })
 
 export const metadata: Metadata = {
   title: { default: en.app.name, template: `%s · ${en.app.name}` },
@@ -14,7 +16,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<'/'>) {
   return (
-    <html lang="en" dir="ltr" className={`${inter.variable} h-full antialiased`}>
+    <html lang="en" dir="ltr" className={`${manrope.variable} ${sora.variable} h-full antialiased`}>
       <body className="min-h-full">
         <TooltipProvider>{children}</TooltipProvider>
       </body>

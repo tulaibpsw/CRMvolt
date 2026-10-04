@@ -241,6 +241,7 @@ export const LABEL_ONLY_ENUMS = {
   NOTIFICATION_TYPES: [C.NOTIFICATION_TYPES, en.notificationType],
   AUDIT_ACTIONS: [C.AUDIT_ACTIONS, en.auditAction],
   KPI_KEYS: [C.KPI_KEYS, en.kpi],
+  SHEET_LEAD_FIELDS: [C.SHEET_LEAD_FIELDS, en.sheetField],
 } as const satisfies Record<string, readonly [readonly string[], Record<string, string>]>
 
 /** Enums never shown to users. */

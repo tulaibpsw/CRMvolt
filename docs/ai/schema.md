@@ -47,9 +47,9 @@ erDiagram
 | `locks` | _id (tick / sheet-pull), until, holder | — |
 | `notifications` | userId, type, title, body, link, dedupeKey, readAt | dedupeKey unique; TTL 90 days |
 | `pushsubscriptions` | userId, endpoint, keys {p256dh, auth} | endpoint unique |
-| `documents` | ownerType, ownerId, category, fileName, mime, size, blobKey, uploadedBy, deletedAt | {ownerType, ownerId} |
+| `documents` | ownerType, ownerId, category, fileName, mime, size, storageKey, uploadedBy, deletedAt | {ownerType, ownerId} |
 | `whatsappnumbers` | phoneNumberId, number, ownerType (agent/department), agentId, departmentId, status, connectedAt, lastEchoAt | phoneNumberId unique |
-| `messages` | waMessageId, contactId, leadId, numberId, direction, type, text, mediaBlobKey, sentFrom, sentByUserId, status, at | waMessageId unique; {contactId, at}; {leadId, at} |
+| `messages` | waMessageId, contactId, leadId, numberId, direction, type, text, mediaStorageKey, sentFrom, sentByUserId, status, at | waMessageId unique; {contactId, at}; {leadId, at} |
 | `settings` | key, value, updatedBy | key unique |
 | `ingestevents` | source, idempotencyKey, payload, status, error, receivedAt | idempotencyKey unique; TTL 30 days |
 | `counters` | _id (lead/quotation/sale), seq — `nextSequence(name)` | — |

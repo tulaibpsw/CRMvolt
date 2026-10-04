@@ -38,7 +38,7 @@ Next.js 16.3 (App Router, Turbopack, `src/`, `@/*`) · React 19.2 · TypeScript 
 - Keep the managed Next.js block above; write project rules only below it.
 
 ## 5. Free-tier rules
-Phase 1 costs $0: Vercel Hobby, Atlas M0 (512 MB), Vercel Blob free 1 GB, cron-job.org, Meta WhatsApp test number. **Never add a paid service or a new npm dependency without asking the user.**
+Phase 1 costs $0: Vercel Hobby, Atlas M0 (512 MB), Cloudinary free plan (private uploads), cron-job.org, Meta WhatsApp test number. **Never add a paid service or a new npm dependency without asking the user.**
 
 ## 6. Architecture rules
 - Server Components by default; `'use client'` only for state, effects or browser APIs.

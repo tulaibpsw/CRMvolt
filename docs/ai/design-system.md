@@ -3,7 +3,7 @@
 Everything visual comes from tokens in **`src/styles/theme.css`** — the only file allowed to contain colour values (ESLint enforces it).
 
 ## 1. Token layers
-1. **Brand palette** (placeholder until the client confirms logo colours): solar amber = primary, deep navy = secondary + sidebar, energy green = success. Rebrand by editing `theme.css` only.
+1. **Brand palette** — taken from voltonsolar.com: gold `#f7b500` (primary), ink navy `#0c1a2b` (text, sidebar), ink `#14263d` (secondary), leaf green `#2da772` (success), mist `#f5f7f9` (page), sand `#f8f1de` (accent). Rebrand by editing `theme.css` only.
 2. **Semantic tokens** (shadcn names) — used by primitives and patterns.
 3. **Tones** — 8 status tones: `neutral, brand, info, success, warning, danger, trading, installation`. Each has `--tone-X` (solid), `--tone-X-foreground`, `--tone-X-soft`, `--tone-X-soft-foreground`.
 
@@ -39,7 +39,10 @@ Soft (default for badges): `bg-tone-info-soft text-tone-info-soft-foreground`. S
 **Never choose a tone in a component.** Tones come from `src/domain/ui-maps.ts` (e.g. `STAGE_META.won.tone`) and render through `StatusBadge`.
 
 ## 4. Typography
-Inter (`--font-inter` → `font-sans`, `font-heading`) via `next/font/google` in `src/app/layout.tsx`. Scale: `text-xs` meta · `text-sm` dense body · `text-base` mobile forms · `text-xl/2xl` titles · `text-2xl` KPI numbers with `tabular-nums`. Urdu later: add Noto Nastaliq Urdu and `dir="rtl"`; keep using logical classes (`ps-`, `pe-`, `start-`, `end-`, `rtl:rotate-180` on arrows).
+Manrope (body, `font-sans`) and Sora (headings, `font-heading`) — the same fonts as voltonsolar.com — via `next/font/google` in `src/app/layout.tsx`. Scale: `text-xs` meta · `text-sm` dense body · `text-base` mobile forms · `text-xl/2xl` titles · `text-2xl` KPI numbers with `tabular-nums`. Urdu later: add Noto Nastaliq Urdu and `dir="rtl"`; keep using logical classes (`ps-`, `pe-`, `start-`, `end-`, `rtl:rotate-180` on arrows).
+
+## 4b. Logo
+`public/brand/volton-logo.png` is white text + a yellow bolt, so it needs a dark surface. Always use `<BrandLogo />` (`src/components/common/brand-logo.tsx`): `surface="bare"` on the navy sidebar, `surface="tile"` (adds a navy tile) on light backgrounds.
 
 ## 5. Layout
 - Mobile-first: base = phone (360–430 px), `md` 768, `lg` 1024+. Bottom nav below `lg`, sidebar from `lg` (`AppShell`).

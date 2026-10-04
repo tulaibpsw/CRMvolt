@@ -2,10 +2,11 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Menu, Sun } from 'lucide-react'
+import { Menu } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { StatusBadge } from '@/components/common/status-badge'
+import { BrandLogo } from '@/components/common/brand-logo'
 import type { Role } from '@/domain/constants'
 import { isActivePath, mobileNavItemsFor, navItemsFor, type NavItem } from '@/domain/navigation'
 import { ROLE_META } from '@/domain/ui-maps'
@@ -27,7 +28,9 @@ export function AppShell({ role, userName, children }: AppShellProps) {
   return (
     <div className="flex min-h-dvh bg-background">
       <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground lg:flex">
-        <Brand className="h-16 px-5 text-lg" iconClassName="text-sidebar-primary" />
+        <div className="flex h-16 items-center px-5">
+          <BrandLogo height={30} priority />
+        </div>
         <nav aria-label={en.nav.main} className="flex flex-1 flex-col gap-1 px-3">
           {items.map((item) => (
             <SideLink key={item.href} item={item} active={isActivePath(pathname, item.href)} />
@@ -38,7 +41,7 @@ export function AppShell({ role, userName, children }: AppShellProps) {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur lg:hidden">
-          <Brand className="text-base" iconClassName="text-tone-brand" />
+          <BrandLogo height={22} surface="tile" priority />
           <Sheet>
             <SheetTrigger asChild>
               <Button variant="ghost" size="icon-lg" aria-label={en.common.menu}>
@@ -47,7 +50,8 @@ export function AppShell({ role, userName, children }: AppShellProps) {
             </SheetTrigger>
             <SheetContent side="right" className="bg-sidebar text-sidebar-foreground">
               <SheetHeader>
-                <SheetTitle className="text-sidebar-foreground">{en.app.name}</SheetTitle>
+                <SheetTitle className="sr-only">{en.app.name}</SheetTitle>
+                <BrandLogo height={28} />
               </SheetHeader>
               <nav aria-label={en.nav.main} className="flex flex-col gap-1 px-3">
                 {items.map((item) => (
@@ -82,14 +86,6 @@ export function AppShell({ role, userName, children }: AppShellProps) {
   )
 }
 
-function Brand({ className, iconClassName }: { className?: string; iconClassName?: string }) {
-  return (
-    <span className={cn('flex items-center gap-2 font-heading font-semibold', className)}>
-      <Sun className={cn('size-6', iconClassName)} aria-hidden />
-      {en.app.name}
-    </span>
-  )
-}
 
 function SideLink({ item, active }: { item: NavItem; active: boolean }) {
   return (
