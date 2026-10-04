@@ -62,3 +62,36 @@
 - **Atlas:** the connection works; indexes are synced and demo data is seeded (60 leads, 71 attempts, 272 timeline events).
 - **GitHub:** pushed to https://github.com/tulaibpsw/CRMvolt (branch `main`).
 - **Checks:** `npm run check` passes with 173 tests.
+
+## Evening — Phase 1 build (M1–M10) + tests
+Based on the client's Excel (`Solar_CRM_Leads_Visits.xlsx`) and the live Google Sheet (493 rows).
+- **M1 Auth & access:** login, `/setup` (first admin with `MASTER_KEY`), our own sessions (scrypt + Mongo, no library), role and data scoping, the Users screen, team order, deactivation that re-queues leads.
+- **M2 Leads:** list with views, search and paging; lead profile with a timeline; quick-add; notes; stage changes; reopen; transfer between departments.
+- **M3 Google Sheet:**
+  - Reads the public CSV link; blank and repeated headers are handled.
+  - The 3 Meta form answers are mapped; dates are read as Pakistan time.
+  - Import modes: history (pre-assigned by "Call Agent"), live, and start-from-now.
+  - Settings shows a preview of the rows; unrecognised answers are kept as text.
+- **M4 Assignment:**
+  - Check-in, breaks and check-out; a manager window, then fixed-order round-robin to checked-in agents.
+  - The queue fills when someone checks in.
+  - Timers (accept, contact, follow-ups) run through cron-job.org, with app polling as a backup.
+- **M5 Agent mobile:**
+  - Big WhatsApp / WA call / Call tiles; the server records each tap; the app records the time away.
+  - Outcome sheet with a screenshot sent to Cloudinary (private).
+  - Follow-ups at 1st call, +1 day, +3 days; Dead after 3 no-answers over 2+ days; fraud flags.
+- **M6 WhatsApp:** webhook with signature check; new chats become leads (with the ad they came from); agent replies (echoes) mark the attempt Verified; chat panel with send.
+- **M7–M8:** notification bell; manager review queue for flagged proof; bulk reassign; team timings.
+- **M9:** pipeline columns; dashboards per role with the PDF KPI names.
+- **Site visits (from the Excel):** new role `field_agent`. Each visit goes to the field agent with the least active kW. "Not interested" moves the visit to a field agent who has not tried this customer yet.
+- **UX + PWA** (user request):
+  - Installable on Android ("Install app" button) and iPhone (Share → Add to Home Screen steps).
+  - App icons, an offline page, and a service worker that caches only static files, never customer data.
+  - Big 56 px buttons for the main actions; no button smaller than 44 px; iPhone safe areas.
+  - Dashboards now open with big `ActionTile` shortcuts to waiting work (leads to assign, overdue follow-ups, who is checked in).
+- **Fix:** `connectDb()` no longer needs `MONGODB_URI` when a connection already exists.
+
+### Checks
+- `npm run check` passes: **205 tests**, including 16 new logic tests and 12 new database flow tests (round-robin with check-in, manual assign, re-inquiry, Dead rule, proof flags, visits, the Sheet pull, the WhatsApp webhook and echo, timers).
+- `npm run build` passes.
+- UI checked at 375 px and desktop.

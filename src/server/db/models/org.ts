@@ -56,6 +56,8 @@ const userSchema = new Schema(
     username: { type: String, unique: true, sparse: true, lowercase: true, trim: true },
     phone: { type: String, validate: { validator: (v: string) => isE164(v), message: 'phone must be E.164 (+92…)' } },
     image: String,
+    /** scrypt hash 'salt:hash' (src/server/auth/password.ts). Never selected by default. */
+    passwordHash: { type: String, select: false },
     role: { type: String, enum: ROLES, required: true, default: DEFAULT_ROLE },
     departmentId: { type: ObjectId, ref: 'Department', default: null },
     managerId: { type: ObjectId, ref: 'User', default: null },
@@ -84,6 +86,19 @@ const attendanceSchema = new Schema(
 attendanceSchema.index({ userId: 1, date: 1 }, { unique: true })
 attendanceSchema.index({ date: 1, status: 1 })
 
+/** Signed-in sessions. Cookie holds a random token; we store only its SHA-256 hash. Expires via TTL. */
+const sessionSchema = new Schema(
+  {
+    tokenHash: { type: String, required: true, unique: true },
+    userId: { type: ObjectId, ref: 'User', required: true, index: true },
+    expiresAt: { type: Date, required: true },
+    userAgent: String,
+  },
+  { timestamps: true },
+)
+sessionSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 })
+
+export const Session = defineModel('Session', sessionSchema)
 export const Department = defineModel('Department', departmentSchema)
 export const Team = defineModel('Team', teamSchema)
 export const User = defineModel('User', userSchema)

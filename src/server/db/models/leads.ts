@@ -17,6 +17,10 @@ import {
   DEFAULT_REVIEW_STATUS,
   DEFAULT_STAGE,
   FOLLOW_UP_STATUSES,
+  INSTALL_LOCATIONS,
+  INSTALL_TIMELINES,
+  SYSTEM_SIZE_RANGES,
+  VISIT_STATUSES,
   LEAD_CHANNELS,
   LEAD_STATUSES,
   LOST_REASONS,
@@ -123,6 +127,10 @@ const siteSchema = new Schema(
     targetKw: { type: Number, min: 0, max: 1000 },
     batteryRequired: Boolean,
     netMeteringRequired: Boolean,
+    /** Meta form answers */
+    systemSizeRange: { type: String, enum: SYSTEM_SIZE_RANGES },
+    installLocation: { type: String, enum: INSTALL_LOCATIONS },
+    installTimeline: { type: String, enum: INSTALL_TIMELINES },
   },
   { _id: false },
 )
@@ -263,6 +271,35 @@ const activitySchema = new Schema(
 activitySchema.index({ leadId: 1, at: -1 })
 insertOnly(activitySchema, 'activities')
 
+/** Site visit by an outdoor (field) agent — the Excel 'Visits' tab. Assigned to the field agent with the least active kW. */
+const visitSchema = new Schema(
+  {
+    leadId: { type: ObjectId, ref: 'Lead', default: null },
+    contactId: { type: ObjectId, ref: 'Contact', default: null },
+    customerName: { type: String, required: true, trim: true },
+    phone: { type: String, required: true, validate: { validator: (v: string) => isE164(v), message: 'phone must be E.164' } },
+    address: { type: String, default: '' },
+    requirement: { type: String, default: '' },
+    locationUrl: { type: String, default: '' },
+    /** System size in kW — the load-balancing weight. */
+    kw: { type: Number, required: true, min: 0, max: 5000 },
+    scheduledAt: { type: Date, default: null },
+    agentId: { type: ObjectId, ref: 'User', default: null },
+    status: { type: String, enum: VISIT_STATUSES, default: 'unassigned' },
+    feedback: { type: String, default: '' },
+    /** Agents who already tried this customer — never reassigned to them. */
+    triedAgentIds: [{ type: ObjectId, ref: 'User' }],
+    assignedAt: { type: Date, default: null },
+    completedAt: { type: Date, default: null },
+  },
+  { timestamps: true },
+)
+visitSchema.plugin(auditFields)
+visitSchema.plugin(softDelete)
+visitSchema.index({ agentId: 1, status: 1 })
+visitSchema.index({ status: 1, scheduledAt: 1 })
+
+export const Visit = defineModel('Visit', visitSchema)
 export const Contact = defineModel('Contact', contactSchema)
 export const Lead = defineModel('Lead', leadSchema)
 export const LeadAssignment = defineModel('LeadAssignment', leadAssignmentSchema)

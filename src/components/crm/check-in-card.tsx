@@ -32,7 +32,7 @@ export function CheckInCard({ status, since, onCheckIn, onCheckOut, onToggleBrea
       <div className="grid grid-cols-2 gap-2">
         {status === 'checked_out' ? (
           <form action={onCheckIn} className="col-span-2">
-            <Button type="submit" size="touch" className="w-full" disabled={!onCheckIn}>
+            <Button type="submit" size="xl" className="w-full" disabled={!onCheckIn}>
               <LogIn data-icon="inline-start" />
               {en.checkIn.checkIn}
             </Button>

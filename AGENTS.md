@@ -13,7 +13,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 These rules apply to **every** AI tool (Claude Code, Google Antigravity, Codex, Cursor…). This file is the single source of truth — `CLAUDE.md` only imports it. Detailed guides live in `docs/ai/`; read the one for the area you touch **before** editing.
 
 ## 1. What this project is
-Volt On Solar CRM — a mobile-first web app for a Pakistani solar company with two departments (Trading, Installation). Leads arrive from a Google Sheet and WhatsApp, are auto-assigned round-robin (fixed order) to checked-in agents, and every agent action is recorded as proof on the lead.
+Volt On Solar CRM — a mobile-first web app for a Pakistani solar company with two departments (Trading, Installation). Leads arrive from a Google Sheet and WhatsApp, are auto-assigned round-robin (fixed order) to checked-in agents, and every agent action is recorded as proof on the lead. Field agents get site visits by least active kW. Installable as a PWA on Android and iPhone.
 - Approved design: `docs/specs/2026-10-04-volton-crm-design.md` · Current plan: newest file in `docs/plans/` · Progress: newest folder in `progress/`
 
 ## 2. Read before you edit
@@ -24,7 +24,7 @@ Volt On Solar CRM — a mobile-first web app for a Pakistani solar company with 
 | `src/components/**` or a page's JSX | `docs/ai/components.md` + `docs/ai/design-system.md` |
 | `src/domain/**`, `src/server/db/**`, seed, enums | `docs/ai/schema.md` |
 | Folders, server/client boundaries, data flow | `docs/ai/architecture.md` |
-| Google Sheet, WhatsApp, cron, file storage | `docs/ai/integrations.md` |
+| Google Sheet, WhatsApp, cron, file storage, auth, PWA | `docs/ai/integrations.md` |
 | How to work, test, commit, log progress | `docs/ai/workflow.md` |
 
 ## 3. Session start and end
@@ -54,7 +54,8 @@ Phase 1 costs $0: Vercel Hobby, Atlas M0 (512 MB), Cloudinary free plan (private
 - Status colours come only from `src/domain/ui-maps.ts` → `StatusBadge`. To recolour, change the map or the token — never the component.
 - **Reuse before you build:** check `docs/ai/components.md`; extend with a `cva` variant, never copy. New reusable components go into the registry and `/dev/ui` (skill `new-component`).
 - Layers: `components/ui` ← `components/common` ← `components/crm`. A layer imports only from layers to its left.
-- Mobile-first (design at 390 px first); touch targets ≥ 44 px (`Button size="touch"`, `min-h-11`); icons only from `lucide-react`; logical classes (`ps-`, `pe-`, `start-`, `end-`) for future Urdu RTL.
+- **Easy for busy agents on a phone:** the main action of a screen uses `Button size="xl"` (56 px); every other button is ≥ 44 px (`size="touch"`, icon buttons `size="icon-touch"`) — never `size="sm"`/`icon-lg` on app screens. Dashboards open with `ActionTile` shortcuts to the work that is waiting; numbers (KPIs) come after.
+- Mobile-first (design at 390 px first); `min-h-11` for tappable rows; respect `env(safe-area-inset-*)` (iPhone notch/home bar); icons only from `lucide-react`; logical classes (`ps-`, `pe-`, `start-`, `end-`) for future Urdu RTL.
 - All user-facing text comes from `src/i18n/en.ts`. Primary (amber) is a fill colour — never use `text-primary` for text on light backgrounds.
 
 ## 8. Schema rules
@@ -66,6 +67,8 @@ Phase 1 costs $0: Vercel Hobby, Atlas M0 (512 MB), Cloudinary free plan (private
 ## 9. Security rules
 - Every Server Action and route handler checks the session and role first.
 - Verify webhook signatures (Meta `X-Hub-Signature-256`) and the cron secret.
+- Auth is our own (no auth library): scrypt password hashes, sessions in Mongo (`sessions`, token hash only) behind the httpOnly `volton_session` cookie. First admin via `/setup` + `MASTER_KEY`.
+- The service worker (`public/sw.js`) caches only static files — never pages, API responses or customer data. Bump its `VERSION` when you change it.
 - Secrets only in env vars; never commit `.env*` except `.env.example`. Never log phone numbers, CNICs or message text.
 
 ## 10. Testing and "done"

@@ -45,13 +45,19 @@ const EXACT: Record<SheetLeadField, string[]> = {
   monthlyUnits: ['monthlyunits', 'units', 'unitsconsumed'],
   targetKw: ['systemsize', 'requiredsystemsize', 'kw', 'systemsizekw', 'capacity'],
   propertyType: ['propertytype', 'property', 'buildingtype'],
-  notes: ['notes', 'note', 'message', 'comments', 'comment', 'remarks', 'requirement', 'requirements', 'details'],
-  agentName: ['agent', 'agentname', 'assignedto', 'salesperson', 'calledby'],
+  notes: ['notes', 'note', 'remark', 'message', 'comments', 'comment', 'remarks', 'requirement', 'requirements', 'details'],
+  agentName: ['agent', 'agentname', 'callagent', 'assignedto', 'salesperson', 'calledby'],
   status: ['status', 'leadstatus', 'callstatus', 'response'],
+  systemSizeRange: ['systemsizerange', 'solarsize', 'whatsizesolarsystemareyouplanningtoinstall'],
+  installLocation: ['installlocation', 'wheredoyouwanttoinstallasolarsystem'],
+  installTimeline: ['installtimeline', 'whendoyouplantoinstallthesolarsystem'],
 }
 
 /** Fallback for long Meta form questions: header contains ALL words of one rule. Checked in order. */
 const CONTAINS: [SheetLeadField, string[]][] = [
+  ['systemSizeRange', ['size', 'solar']],
+  ['installLocation', ['where', 'install']],
+  ['installTimeline', ['when', 'install']],
   ['monthlyBillPkr', ['bill']],
   ['monthlyUnits', ['unit']],
   ['targetKw', ['kw']],
@@ -79,7 +85,35 @@ export interface ColumnDetection {
   missingRequired: SheetLeadField[]
 }
 
-export const REQUIRED_SHEET_FIELDS: readonly SheetLeadField[] = ['phone']
+
+/** Spreadsheet column letter: 0 → A, 25 → Z, 26 → AA. */
+export function columnLetter(index: number): string {
+  let n = index + 1
+  let out = ''
+  while (n > 0) {
+    const r = (n - 1) % 26
+    out = String.fromCharCode(65 + r) + out
+    n = Math.floor((n - 1) / 26)
+  }
+  return out
+}
+
+/**
+ * Make every header unique and non-empty: blank → 'Column A' / 'Column AB' (by position),
+ * repeated → 'Comment', 'Comment (2)', 'Comment (3)' — so no column overwrites another.
+ */
+export function nameBlankHeaders(headers: string[]): string[] {
+  const seen = new Map<string, number>()
+  return headers.map((h, i) => {
+    const base = h.trim() ? h.trim() : `Column ${columnLetter(i)}`
+    const n = (seen.get(base) ?? 0) + 1
+    seen.set(base, n)
+    return n === 1 ? base : `${base} (${n})`
+  })
+}
+
+/** 'Column A' is the date in the client's Leads tab. */
+export const DEFAULT_HEADER_OVERRIDES: Record<string, HeaderOverride> = { 'Column A': 'submittedAt' }
 
 export function detectColumns(headers: string[], overrides: Record<string, HeaderOverride> = {}): ColumnDetection {
   const mapping: Record<string, SheetLeadField> = {}
@@ -96,7 +130,7 @@ export function detectColumns(headers: string[], overrides: Record<string, Heade
       ignored.push(header)
       continue
     }
-    const field = override ?? exactLookup.get(normalizeHeader(header))
+    const field = override ?? DEFAULT_HEADER_OVERRIDES[header] ?? exactLookup.get(normalizeHeader(header))
     if (field && !taken.has(field)) {
       mapping[header] = field
       taken.add(field)
@@ -110,7 +144,7 @@ export function detectColumns(headers: string[], overrides: Record<string, Heade
       taken.add(rule[0])
     } else dynamic.push(header)
   }
-  return { mapping, dynamic, ignored, missingRequired: REQUIRED_SHEET_FIELDS.filter((f) => !taken.has(f)) }
+  return { mapping, dynamic, ignored, missingRequired: taken.has('phone') || taken.has('whatsapp') ? [] : ['phone'] }
 }
 
 export interface MappedSheetRow {
@@ -135,7 +169,7 @@ export function mapSheetRow(row: SheetRow, detection: ColumnDetection): MappedSh
     if (value) extra[header] = value
   }
   // Meta exports phones like "p:+923001234567".
-  const phone = normalizePhone(fields.phone?.replace(/^p:/i, '') ?? null)
+  const phone = normalizePhone((fields.phone ?? fields.whatsapp)?.replace(/^p:/i, '') ?? null)
   return { fields, phone, extra }
 }
 
@@ -172,4 +206,31 @@ export interface SheetConfig {
   headerOverrides: Record<string, HeaderOverride>
   /** last processed row per tab */
   cursor: Record<string, number>
+}
+
+/** Map a Meta form answer to our enum (tolerant of typos like "within_a_monthwithin_7_to_15_days"). */
+export function parseFormAnswer<T extends string>(value: string | undefined, allowed: readonly T[]): T | undefined {
+  if (!value) return undefined
+  const v = value.toLowerCase().replace(/\s+/g, '_')
+  if ((allowed as readonly string[]).includes(v)) return v as T
+  if (v.startsWith('commercial')) return allowed.find((a) => a === 'commercial')
+  return allowed.find((a) => v.includes(a))
+}
+
+/** Sheet dates: "10/3/26" (month/day/year, Google) or "27/08/2026" (day > 12 → day/month/year) or ISO. Times in PKT. */
+export function parseSheetDate(value: string | undefined): Date | undefined {
+  if (!value) return undefined
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::\d{2})?\s*(am|pm)?)?$/i.exec(value.trim())
+  if (m) {
+    const [a, b] = [Number(m[1]), Number(m[2])]
+    const year = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3])
+    const [month, day] = a > 12 ? [b, a] : [a, b]
+    let hour = m[4] ? Number(m[4]) : 12
+    if (m[6]?.toLowerCase() === 'pm' && hour < 12) hour += 12
+    if (m[6]?.toLowerCase() === 'am' && hour === 12) hour = 0
+    const date = new Date(Date.UTC(year, month - 1, day, hour - 5, m[5] ? Number(m[5]) : 0))
+    return Number.isNaN(date.getTime()) ? undefined : date
+  }
+  const iso = new Date(value)
+  return Number.isNaN(iso.getTime()) ? undefined : iso
 }

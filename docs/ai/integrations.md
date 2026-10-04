@@ -1,12 +1,11 @@
 # Integrations — rules and gotchas
 
 ## Google Sheet → CRM (M3)
-- The CRM **pulls** the Sheet with a Google service account (Sheets API, free, no billing). The client shares the Sheet with the service-account email as Editor.
-- `/api/cron/sheet-pull` every minute (cron-job.org) with its own lease lock + a "Sync now" button.
-- Columns by header name; Meta headers auto-detected (`id, created_time, campaign_name, adset_name, ad_name, form_name, platform, full_name, phone_number, email, city`); unknown columns → `lead.extra`.
-- **Duplicate guard = unique `source.rowKey`** (Meta lead ID, else hash of tab + phone + created time). Write-back (Lead No, Assigned To) is only a convenience.
-- Row cursor + nightly reconcile. Mark historic rows before the first pull. Read the Sheet's timezone for dates.
-- Do NOT use Apps Script triggers (`onEdit` misses integration rows; 1-min triggers exhaust free quotas).
+- Phase 1 reads the Sheet as **public CSV** (no Google account, no keys): `docs.google.com/spreadsheets/d/<id>/gviz/tq?tqx=out:csv&headers=1&sheet=<tab>`. The Sheet must be shared "Anyone with the link → Viewer" — anyone with the link can see customer phones, so keep the link private (phase 2: service account).
+- `/api/cron/sheet-pull` every minute (cron-job.org) with a lease lock, plus "Pull now" in Settings. Modes: `live` (new rows → round-robin), `history` (old rows, quiet, pre-assigned by the Sheet's "Call Agent" first name), `skip` (start from now).
+- Headers: blank → "Column A", repeats → "Comment (2)". Detection = admin overrides → exact aliases → "contains" rules (Meta form questions). Everything else → `lead.extra`; unrecognised form answers are kept in `extra` as text.
+- Dates: "10/3/26" = month/day/year (Google); first number > 12 → day/month/year. All Pakistan time.
+- **Duplicate guard = unique `source.rowKey`** (Meta lead ID, else hash of tab + phone + date). Cursor per tab in `settings.sheet_config`.
 
 ## WhatsApp Cloud API (M6)
 - Phase 1: Meta's free test number (≤ 5 verified recipients). Use a System User token, not the 24 h token.
@@ -26,6 +25,16 @@
 - Upload **straight from the phone** to Cloudinary with a server-signed upload signature (bypasses Vercel's 4.5 MB body limit). Use `type: 'authenticated'` so files are private; store the `public_id` in `storageKey`.
 - Show files only through short-lived signed delivery URLs generated on the server after the role check.
 - Compress images on the phone to ~150 KB; folder per lead: `volton/leads/<leadId>/<category>`. Skip videos (free-plan credits).
+
+## Auth
+- Own code, no library: `src/server/auth/*`. scrypt hashes; random session token in the httpOnly `volton_session` cookie, only its SHA-256 stored in `sessions` (30 days, TTL index). `proxy.ts` only checks the cookie exists — pages/actions call `requireUser`/`requireRole`, and data goes through `leadScope`/`visitScope`/`userScope`.
+- First admin: `/setup` with `MASTER_KEY`. Admin creates everyone else in Settings → Users.
+
+## PWA (installable app)
+- `src/app/manifest.ts` (start `/dashboard`, standalone, navy theme), icons in `public/icons` (rebuild: `node scripts/make-icons.mjs`), iOS meta via `metadata.appleWebApp`.
+- `public/sw.js`: network-only for pages + `/offline.html` fallback; cache-first only for `/_next/static`, `/icons`, `/brand`. Registered in production only. Served with no-cache headers (`next.config.ts`).
+- Android shows a real "Install app" button; iPhone (Safari) has none — the banner explains Share → Add to Home Screen.
+- PWA files are public in `proxy.ts` (manifest, sw.js, offline.html, icons).
 
 ## Database
 - Atlas M0 (512 MB, no automatic backups) → nightly `mongodump` via GitHub Actions. `connectDb()` caches the connection and calls `attachDatabasePool`.

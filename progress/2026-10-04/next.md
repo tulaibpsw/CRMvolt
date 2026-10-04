@@ -1,22 +1,24 @@
 # Next — after 2026-10-04
 
-## Needed from the client / user (phase 0, free)
-1. **Volt On brand colours or logo** — needed to replace the placeholder palette in `src/styles/theme.css`.
-2. **A copy of the Google Sheet** (or just its column headers).
-3. **The list of users:** who manages each department, and the agent order (User 1, 2, 3, 4).
-4. **Office details:** working hours, holidays, and the SLA numbers (accept within, contact within 15/30/60 min).
-5. **Free accounts:**
-   - MongoDB Atlas M0, with its connection string in `.env.local`;
-   - Vercel Hobby;
-   - a Google Cloud service account;
-   - cron-job.org;
-   - a Meta developer app with the WhatsApp test number.
+## For the user (free, ~30 min)
+1. **Deploy to Vercel:**
+   - Import the GitHub repo.
+   - Add the env vars from `.env.local`: `MONGODB_URI`, `AUTH_SECRET`, `MASTER_KEY`, `CLOUDINARY_*` and `CRON_SECRET`.
+   - Add `WHATSAPP_*` once the Meta app exists.
+2. **cron-job.org:** two jobs, both every minute, with the header `Authorization: Bearer <CRON_SECRET>`:
+   - `https://<app>/api/cron/tick`
+   - `https://<app>/api/cron/sheet-pull`
+3. **First admin:** open `/setup` and enter `MASTER_KEY`. Then:
+   - Create the real managers and agents in Settings → Users.
+   - Settings → Google Sheet: "Import ALL rows as history" once, then live.
+4. **WhatsApp test:**
+   - Create a Meta app and add WhatsApp; use the test number.
+   - Set the webhook to `https://<app>/api/webhooks/whatsapp` with `WHATSAPP_VERIFY_TOKEN`.
+   - Fill in `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` and `WHATSAPP_APP_SECRET`.
+5. **Security:** change the Atlas password (the current one is weak).
 
-## Build (M1 — auth & access)
-1. M1 — Install Better Auth (MongoDB adapter, username + password, admin plugin), sharing the `user` collection.
-2. M1 — `proxy.ts` redirects signed-out users; `(auth)/login` page.
-3. M1 — `scopeFilter(user)` + role guard helpers used by every service and action.
-4. M1 — Users and teams screens (create a user, pick department/manager, drag the team order).
-5. M1 — Audit log writes for user/team changes, plus the GitHub Actions nightly `mongodump` backup.
-6. M1 — Form field components (RHF + Zod) and toasts, registered in `docs/ai/components.md`.
-7. End of phase: tests + `npm run check`.
+## Build next
+1. The client demo walkthrough on real phones (Android + iPhone install), then fix what the client asks for.
+2. Web Push (closed-app alerts) — works on Android, and on iPhone once the app is installed (iOS 16.4+).
+3. Nightly `mongodump` backup via GitHub Actions (Atlas M0 has no backup).
+4. Playwright smoke test for the agent flow on a phone viewport.

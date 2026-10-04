@@ -62,6 +62,7 @@ export const ROLE_META: MetaMap<C.Role> = {
   admin: { label: en.role.admin, tone: 'brand', icon: ShieldCheck },
   manager: { label: en.role.manager, tone: 'info', icon: UserCheck },
   agent: { label: en.role.agent, tone: 'neutral', icon: User },
+  field_agent: { label: en.role.field_agent, tone: 'installation', icon: MapPin },
 }
 
 export const DEPARTMENT_META: MetaMap<C.Department> = {
@@ -196,6 +197,18 @@ export const ACTIVITY_TYPE_META: MetaMap<C.ActivityType> = {
   document_added: { label: en.activityType.document_added, tone: 'neutral', icon: FileImage },
   status_changed: { label: en.activityType.status_changed, tone: 'brand', icon: Flag },
   proof_reviewed: { label: en.activityType.proof_reviewed, tone: 'info', icon: ShieldCheck },
+  visit_assigned: { label: en.activityType.visit_assigned, tone: 'installation', icon: MapPin },
+  visit_updated: { label: en.activityType.visit_updated, tone: 'installation', icon: MapPin },
+}
+
+export const VISIT_STATUS_META: MetaMap<C.VisitStatus> = {
+  unassigned: { label: en.visitStatus.unassigned, tone: 'warning', icon: Inbox },
+  assigned: { label: en.visitStatus.assigned, tone: 'info', icon: MapPin },
+  rescheduled: { label: en.visitStatus.rescheduled, tone: 'warning', icon: Clock },
+  completed: { label: en.visitStatus.completed, tone: 'neutral', icon: Check },
+  interested: { label: en.visitStatus.interested, tone: 'success', icon: Star },
+  not_interested: { label: en.visitStatus.not_interested, tone: 'danger', icon: CircleX },
+  cancelled: { label: en.visitStatus.cancelled, tone: 'neutral', icon: Ban },
 }
 
 export const WHATSAPP_NUMBER_STATUS_META: MetaMap<C.WhatsAppNumberStatus> = {
@@ -224,6 +237,7 @@ export const ENUM_UI_MAPS = {
   SLA_STATES: [C.SLA_STATES, SLA_STATE_META],
   ACTIVITY_TYPES: [C.ACTIVITY_TYPES, ACTIVITY_TYPE_META],
   WHATSAPP_NUMBER_STATUSES: [C.WHATSAPP_NUMBER_STATUSES, WHATSAPP_NUMBER_STATUS_META],
+  VISIT_STATUSES: [C.VISIT_STATUSES, VISIT_STATUS_META],
 } as const satisfies Record<string, readonly [readonly string[], Record<string, StatusMeta>]>
 
 /** Enums shown as plain text (selects, tables): [values, labels]. */
@@ -242,11 +256,16 @@ export const LABEL_ONLY_ENUMS = {
   AUDIT_ACTIONS: [C.AUDIT_ACTIONS, en.auditAction],
   KPI_KEYS: [C.KPI_KEYS, en.kpi],
   SHEET_LEAD_FIELDS: [C.SHEET_LEAD_FIELDS, en.sheetField],
+  SYSTEM_SIZE_RANGES: [C.SYSTEM_SIZE_RANGES, en.systemSizeRange],
+  INSTALL_LOCATIONS: [C.INSTALL_LOCATIONS, en.installLocation],
+  INSTALL_TIMELINES: [C.INSTALL_TIMELINES, en.installTimeline],
 } as const satisfies Record<string, readonly [readonly string[], Record<string, string>]>
 
 /** Enums never shown to users. */
 export const INTERNAL_ENUMS = [
   'MESSAGE_DIRECTIONS',
+  'ACTIVE_VISIT_STATUSES',
+  'FOLLOW_UP_GAP_DAYS',
   'MESSAGE_TYPES',
   'DOCUMENT_OWNER_TYPES',
   'JOB_KINDS',

@@ -115,7 +115,7 @@ describe('behaviour', () => {
 describe('seed', () => {
   it('builds consistent demo data', async () => {
     const summary = await seedDemoData(new Date('2026-10-04T05:00:00Z'))
-    expect(summary).toMatchObject({ departments: 2, users: 11, leads: 60 })
+    expect(summary).toMatchObject({ departments: 2, users: 17, leads: 60 })
     expect(summary.attempts).toBeGreaterThan(0)
     expect(summary.messages).toBeGreaterThan(0)
 

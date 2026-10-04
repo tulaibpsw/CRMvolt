@@ -5,7 +5,8 @@
  * Every UPPER_SNAKE array here must be classified in src/domain/ui-maps.ts (a test enforces it).
  */
 
-export const ROLES = ['admin', 'manager', 'agent'] as const
+/** agent = call agent (phone/WhatsApp); field_agent = outdoor site-visit agent (Excel "Visits" tab). */
+export const ROLES = ['admin', 'manager', 'agent', 'field_agent'] as const
 export type Role = (typeof ROLES)[number]
 
 export const DEPARTMENTS = ['TRADING', 'INSTALLATION'] as const
@@ -163,6 +164,8 @@ export const ACTIVITY_TYPES = [
   'document_added',
   'status_changed',
   'proof_reviewed',
+  'visit_assigned',
+  'visit_updated',
 ] as const
 export type ActivityType = (typeof ACTIVITY_TYPES)[number]
 
@@ -179,6 +182,7 @@ export const NOTIFICATION_TYPES = [
   'lead_unreachable',
   'agent_auto_paused',
   'whatsapp_disconnected',
+  'visit_assigned',
 ] as const
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]
 
@@ -200,8 +204,24 @@ export type IngestStatus = (typeof INGEST_STATUSES)[number]
 export const AUDIT_ACTIONS = ['create', 'update', 'soft_delete', 'restore', 'export'] as const
 export type AuditAction = (typeof AUDIT_ACTIONS)[number]
 
-export const SETTING_KEYS = ['working_hours', 'holidays', 'sla_defaults', 'sheet_config', 'follow_up_cadence'] as const
+export const SETTING_KEYS = ['working_hours', 'holidays', 'sla_defaults', 'sheet_config', 'follow_up_cadence', 'routing'] as const
 export type SettingKey = (typeof SETTING_KEYS)[number]
+
+/** Meta lead-form answers (the client's real form questions). */
+export const SYSTEM_SIZE_RANGES = ['5_to_15_kw', '15_to_25_kw', '25_to_40_kw', 'more_than_40_kw'] as const
+export type SystemSizeRange = (typeof SYSTEM_SIZE_RANGES)[number]
+
+export const INSTALL_LOCATIONS = ['home', 'commercial', 'industry'] as const
+export type InstallLocation = (typeof INSTALL_LOCATIONS)[number]
+
+export const INSTALL_TIMELINES = ['within_7_to_15_days', 'within_a_month', 'later'] as const
+export type InstallTimeline = (typeof INSTALL_TIMELINES)[number]
+
+/** Site visits by outdoor (field) agents — the Excel "Visits" tab. */
+export const VISIT_STATUSES = ['unassigned', 'assigned', 'rescheduled', 'completed', 'interested', 'not_interested', 'cancelled'] as const
+export type VisitStatus = (typeof VISIT_STATUSES)[number]
+/** Visits that still count toward a field agent's kW load. */
+export const ACTIVE_VISIT_STATUSES: readonly VisitStatus[] = ['assigned', 'rescheduled']
 
 /** CRM fields a Google Sheet column can map to. Unmapped columns are kept in lead.extra (dynamic columns). */
 export const SHEET_LEAD_FIELDS = [
@@ -233,6 +253,9 @@ export const SHEET_LEAD_FIELDS = [
   'notes',
   'agentName',
   'status',
+  'systemSizeRange',
+  'installLocation',
+  'installTimeline',
 ] as const
 export type SheetLeadField = (typeof SHEET_LEAD_FIELDS)[number]
 
@@ -270,6 +293,9 @@ export const DEFAULT_INGEST_STATUS: IngestStatus = 'received'
 
 export const PK_TIMEZONE = 'Asia/Karachi'
 export const MAX_FOLLOW_UPS = 3
+/** Client's cadence (Excel READ ME): 1st call → +1 day → +3 days → Dead after 3 no-answers. */
+export const FOLLOW_UP_GAP_DAYS = [0, 1, 3] as const
+export const SESSION_DAYS = 30
 
 export const TEAM_DEFAULTS = {
   managerWindowMin: 5,

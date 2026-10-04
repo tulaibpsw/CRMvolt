@@ -2,8 +2,8 @@ export * from '@/server/db/models/org'
 export * from '@/server/db/models/leads'
 export * from '@/server/db/models/system'
 
-import { Attendance, Department, Team, User } from '@/server/db/models/org'
-import { Activity, Contact, ContactAttempt, FollowUp, Lead, LeadAssignment } from '@/server/db/models/leads'
+import { Attendance, Department, Session, Team, User } from '@/server/db/models/org'
+import { Activity, Contact, ContactAttempt, FollowUp, Lead, LeadAssignment, Visit } from '@/server/db/models/leads'
 import {
   AuditLog,
   Counter,
@@ -24,6 +24,8 @@ export const ALL_MODELS = [
   Team,
   User,
   Attendance,
+  Session,
+  Visit,
   Contact,
   Lead,
   LeadAssignment,

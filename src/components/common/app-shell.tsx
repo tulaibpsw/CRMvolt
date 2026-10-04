@@ -16,11 +16,13 @@ import { cn } from '@/lib/utils'
 export interface AppShellProps {
   role: Role
   userName: string
+  /** Header tools: notification bell, sign out (rendered in the phone top bar and desktop top bar). */
+  actions?: React.ReactNode
   children: React.ReactNode
 }
 
 /** Signed-in layout: navy sidebar on desktop (lg+), top bar + bottom nav on phones. */
-export function AppShell({ role, userName, children }: AppShellProps) {
+export function AppShell({ role, userName, actions, children }: AppShellProps) {
   const pathname = usePathname()
   const items = navItemsFor(role)
   const mobileItems = mobileNavItemsFor(role)
@@ -42,9 +44,11 @@ export function AppShell({ role, userName, children }: AppShellProps) {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur lg:hidden">
           <BrandLogo height={22} surface="tile" priority />
+          <div className="flex items-center gap-1">
+          {actions}
           <Sheet>
             <SheetTrigger asChild>
-              <Button variant="ghost" size="icon-lg" aria-label={en.common.menu}>
+              <Button variant="ghost" size="icon-touch" aria-label={en.common.menu}>
                 <Menu />
               </Button>
             </SheetTrigger>
@@ -61,9 +65,11 @@ export function AppShell({ role, userName, children }: AppShellProps) {
               <UserBlock role={role} userName={userName} className="mt-auto border-t border-sidebar-border px-5 py-4" />
             </SheetContent>
           </Sheet>
+          </div>
         </header>
+        {actions ? <div className="sticky top-0 z-30 hidden h-14 items-center justify-end gap-2 border-b border-border bg-background/95 px-6 backdrop-blur lg:flex">{actions}</div> : null}
 
-        <main className="flex-1 pb-20 lg:pb-0">{children}</main>
+        <main className="flex-1 pb-[calc(5rem+env(safe-area-inset-bottom))] lg:pb-0">{children}</main>
 
         <nav aria-label={en.nav.mobile} className="fixed inset-x-0 bottom-0 z-30 flex border-t border-border bg-card pb-[env(safe-area-inset-bottom)] lg:hidden">
           {mobileItems.map((item) => {
@@ -75,7 +81,7 @@ export function AppShell({ role, userName, children }: AppShellProps) {
                 aria-current={active ? 'page' : undefined}
                 className={cn('flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-xs font-medium', active ? 'text-foreground' : 'text-muted-foreground')}
               >
-                <item.icon className={cn('size-5', active && 'text-tone-brand')} aria-hidden />
+                <item.icon className={cn('size-6', active && 'text-tone-brand')} aria-hidden />
                 {item.label}
               </Link>
             )

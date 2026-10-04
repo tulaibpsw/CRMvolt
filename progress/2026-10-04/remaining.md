@@ -2,29 +2,27 @@
 
 ## Phase 1 milestones
 - ✅ M0 — Foundation (AI rules, theme, components + catalog, schema + seed)
-- ⬜ M1 — Auth & access (Better Auth, scopeFilter, users/teams screens, audit, backup)
-- ⬜ M2 — Leads core (quick-add, search, views, CSV export, timeline)
-- ⬜ M3 — Google Sheet pull + history import
-- ⬜ M4 — Attendance + assignment engine (manager window → fixed-order round-robin) + jobs/cron
-- ⬜ M5 — Agent mobile app: WhatsApp/Call buttons, outcome sheet, screenshot proof, 3 follow-ups
-- ⬜ M6 — WhatsApp (webhook, auto leads, chat panel, Verified attempts, Coexistence check)
-- ⬜ M7 — Notifications, SLAs, Web Push
-- ⬜ M8 — Manager tools (live board, bulk reassign, proof review)
-- ⬜ M9 — Pipelines + dashboards (PDF KPI names)
-- ⬜ M10 — Client demo on the free stack
+- ✅ M1 — Auth & access (own sessions, scoping, users/teams)
+- ✅ M2 — Leads core
+- ✅ M3 — Google Sheet pull + history import
+- ✅ M4 — Attendance + assignment engine + jobs/cron
+- ✅ M5 — Agent mobile app (contact tiles, outcome sheet, screenshot proof, 1-1-3 follow-ups)
+- ✅ M6 — WhatsApp webhook, auto leads, chat, Verified attempts
+- ✅ M7/M8 — Notifications (in-app), manager tools, proof review
+- ✅ M9 — Pipelines + dashboards
+- ✅ Site visits for field agents (from the client's Excel)
+- ✅ PWA (Android + iPhone) and the big-button mobile UX
+- ⬜ M10 — Deploy and client demo on the free stack
+- ⬜ Web Push, nightly backup, CSV export, Playwright E2E
 
 ## Later phases
-- ⬜ Phase 2: go live after the cost discussion (real WhatsApp numbers per agent, paid tiers only if needed).
+- ⬜ Phase 2: go live after the cost discussion — real WhatsApp numbers per agent (Coexistence), call recording add-on, Sheet via service account.
 - ⬜ Phase 3: solar sales tools and quotations.
-- ⬜ Phase 4: sales, payments and commission.
+- ⬜ Phase 4: sales, payments, commission.
 - ⬜ Phase 5: reports and growth.
 
-## Open questions for the client
-- Brand colours and logo.
-- How do rows reach the Sheet today — Meta's connector, Zapier, or by hand? Is there a lead-ID column?
-- Are 5-minute manager window, 5-minute accept and 15-minute contact the right defaults?
-- The follow-up cadence (e.g. same day / +1 day / +3 days)?
-
 ## Known limits (free plan)
-- **Vercel Hobby** is for non-commercial use — fine for the demo, but Pro is needed before real production use.
-- **Atlas M0** has 512 MB and no automatic backup — the nightly dump comes in M1.
+- **Vercel Hobby** is for non-commercial use — Pro is needed before real production use.
+- **Atlas M0:** 512 MB, no automatic backup.
+- **Public Sheet link:** anyone with the link sees customer phones — keep it private.
+- **Meta test number:** only 5 verified recipients.

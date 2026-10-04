@@ -34,7 +34,9 @@ erDiagram
 |---|---|---|
 | `departments` | code (TRADING/INSTALLATION), name, stages, routingKeywords, workingHours | code unique |
 | `teams` | departmentId, managerId, **memberOrder** (the only order), rr {lastUid, lastPos}, version, managerWindowMin, paused, acceptWithinMin, contactWithinMin, maxPendingAccept, autoMoveOnAcceptTimeout | departmentId |
-| `user` | name, email, username, phone, role, departmentId, managerId, isActive, autoPausedAt (shared with Better Auth in M1) | email, username unique; {departmentId, role, isActive} |
+| `user` | name, email, username, phone, role, departmentId, managerId, isActive, autoPausedAt, passwordHash (`select: false`, scrypt) | email, username unique; {departmentId, role, isActive} |
+| `sessions` | tokenHash (SHA-256 of the cookie token), userId, expiresAt, userAgent | tokenHash unique; TTL on expiresAt |
+| `visits` | leadId, contactId, customerName, phone, address, requirement, locationUrl, kw, scheduledAt, agentId (field agent), status, feedback, triedAgentIds[], assignedAt, completedAt | {agentId, status}; {status, scheduledAt} |
 | `attendances` | userId, date (PKT key), status, checkInAt, checkOutAt, breaks[], location | {userId, date} unique |
 | `contacts` | name, phones[] (E.164), whatsappE164, email, city, area, address, type | phones unique (multikey) |
 | `leads` | leadNo, contactId, departmentId, teamId, stage, stageChangedAt, status, closedAt, lostReason, wonValuePkr, receivedAt, assignableAt, source {channel, rowKey, metaLeadId, submittedAt, campaign/adset/ad/form ids+names, platform, ctwa{sourceId, sourceType, sourceUrl, headline, body, mediaType, image/video/thumbnailUrl, ctwaClid, welcomeMessage}}, assignment {agentId, state, assignedAt, assignedBy, method, acceptedAt, bounces}, firstContactAt, lastContactAt, attemptCount, noAnswerStreak, nextFollowUpAt, site{}, trading{}, extra, version | leadNo unique; {departmentId, stage, status}; {assignment.agentId, status, nextFollowUpAt}; **partial unique {contactId, departmentId} where status open**; partial unique source.metaLeadId / source.rowKey |
