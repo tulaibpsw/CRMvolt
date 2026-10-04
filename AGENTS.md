@@ -7,3 +7,72 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+# Volt On CRM — rules for AI agents
+
+These rules apply to **every** AI tool (Claude Code, Google Antigravity, Codex, Cursor…). This file is the single source of truth — `CLAUDE.md` only imports it. Detailed guides live in `docs/ai/`; read the one for the area you touch **before** editing.
+
+## 1. What this project is
+Volt On Solar CRM — a mobile-first web app for a Pakistani solar company with two departments (Trading, Installation). Leads arrive from a Google Sheet and WhatsApp, are auto-assigned round-robin (fixed order) to checked-in agents, and every agent action is recorded as proof on the lead.
+- Approved design: `docs/specs/2026-10-04-volton-crm-design.md` · Current plan: newest file in `docs/plans/` · Progress: newest folder in `progress/`
+
+## 2. Read before you edit
+| You are touching | Read first |
+|---|---|
+| Any Next.js API (routing, pages, layouts, fonts, actions, caching) | `node_modules/next/dist/docs/` (version-matched) |
+| Colours, spacing, typography, `src/styles/**` | `docs/ai/design-system.md` |
+| `src/components/**` or a page's JSX | `docs/ai/components.md` + `docs/ai/design-system.md` |
+| `src/domain/**`, `src/server/db/**`, seed, enums | `docs/ai/schema.md` |
+| Folders, server/client boundaries, data flow | `docs/ai/architecture.md` |
+| Google Sheet, WhatsApp, cron, file storage | `docs/ai/integrations.md` |
+| How to work, test, commit, log progress | `docs/ai/workflow.md` |
+
+## 3. Session start and end
+- **Start:** read this file, then the newest `progress/<date>/next.md` and `remaining.md`.
+- **End:** run the `daily-progress` skill — create/update `progress/<today>/` (Pakistan date, `YYYY-MM-DD`).
+
+## 4. Stack
+Next.js 16.3 (App Router, Turbopack, `src/`, `@/*`) · React 19.2 · TypeScript strict · Tailwind v4 · shadcn/ui (Radix, nova, RTL-ready) · MongoDB Atlas + Mongoose 9 · Zod 4 · Vitest 5 · mongodb-memory-server.
+- `params`/`searchParams` are Promises — await them; use `PageProps<'/route'>` / `LayoutProps<'/'>`.
+- `middleware` is now `proxy.ts`; `next lint` is gone — use `npm run lint`.
+- Keep the managed Next.js block above; write project rules only below it.
+
+## 5. Free-tier rules
+Phase 1 costs $0: Vercel Hobby, Atlas M0 (512 MB), Vercel Blob free 1 GB, cron-job.org, Meta WhatsApp test number. **Never add a paid service or a new npm dependency without asking the user.**
+
+## 6. Architecture rules
+- Server Components by default; `'use client'` only for state, effects or browser APIs.
+- Database code lives only in `src/server/**`. Pages and Server Actions call services; components never import models.
+- Components receive view models (`src/domain/view-models.ts`), never Mongoose documents.
+- Every query goes through `scopeFilter(user)` (admin = all, manager = own department, agent = own leads). Never trust ids/roles from the client.
+- Multi-document changes run in `withTransaction` and write an `activities` entry (+ `audit_logs` for users/settings/money). Side effects (push, HTTP) only after commit.
+- Webhooks and cron routes are idempotent (unique keys, lease locks).
+
+## 7. Design-system rules
+- **Colours exist only in `src/styles/theme.css`.** No hex/rgb/oklch, no Tailwind palette classes (`text-red-500`, `bg-black/10`), no arbitrary colours — ESLint blocks them.
+- Use semantic utilities (`bg-background`, `text-muted-foreground`, `bg-primary`) and tone utilities (`bg-tone-info-soft text-tone-info-soft-foreground`).
+- Status colours come only from `src/domain/ui-maps.ts` → `StatusBadge`. To recolour, change the map or the token — never the component.
+- **Reuse before you build:** check `docs/ai/components.md`; extend with a `cva` variant, never copy. New reusable components go into the registry and `/dev/ui` (skill `new-component`).
+- Layers: `components/ui` ← `components/common` ← `components/crm`. A layer imports only from layers to its left.
+- Mobile-first (design at 390 px first); touch targets ≥ 44 px (`Button size="touch"`, `min-h-11`); icons only from `lucide-react`; logical classes (`ps-`, `pe-`, `start-`, `end-`) for future Urdu RTL.
+- All user-facing text comes from `src/i18n/en.ts`. Primary (amber) is a fill colour — never use `text-primary` for text on light backgrounds.
+
+## 8. Schema rules
+- Enum values are defined only in `src/domain/constants.ts`. Elsewhere use the exported union types (`Stage`, `Role`…) so TypeScript checks every literal; never declare a parallel list. New enums must be classified in `ui-maps.ts` (a test enforces it).
+- Model + Zod schema + indexes change together (skill `new-model`).
+- Phones in E.164 via `src/lib/phone.ts`; dates stored UTC, shown in Pakistan time via `src/lib/dates-pkt.ts` (never `getHours()`/`toLocale*()`); money as integer PKR via `src/lib/money.ts`.
+- No hard deletes (`deletedAt`); records carry `createdBy`/`updatedBy`; `activities` and `audit_logs` are insert-only.
+
+## 9. Security rules
+- Every Server Action and route handler checks the session and role first.
+- Verify webhook signatures (Meta `X-Hub-Signature-256`) and the cron secret.
+- Secrets only in env vars; never commit `.env*` except `.env.example`. Never log phone numbers, CNICs or message text.
+
+## 10. Testing and "done"
+- Build a phase first; write/run tests when the phase is complete (`tests/unit`, DB tests in `tests/db` on MongoMemoryReplSet).
+- Before calling a phase done: `npm run check` (lint + typecheck + tests + AI check) passes and UI is checked at 390 px and 1280 px.
+
+## 11. Never
+- Twilio or a browser dialer; unofficial WhatsApp libraries (whatsapp-web.js, Baileys).
+- Hard-coded colours, user-facing strings or enum lists; hard deletes; committed secrets; `--no-verify`.
+- Editing `.claude/skills/**` directly — edit `.agents/skills/**`, then `npm run ai:sync`.
