@@ -11,6 +11,8 @@ import { isObjectId, loadLeadFor } from '@/server/auth/guards'
 import { leadScope } from '@/server/auth/scope'
 import { managersOf, autoAssign, drainQueue } from '@/server/services/assignment'
 import { getPrivateImage, isCloudinaryConfigured } from '@/server/services/cloudinary'
+import { notifyWatchers } from '@/server/services/watch'
+import { ATTEMPT_CHANNEL_META, CALL_RESULT_META, CUSTOMER_RESPONSE_META } from '@/domain/ui-maps'
 import { cancelJobs, logActivity, notify, oid, scheduleJob, UserError } from '@/server/services/common'
 import { en } from '@/i18n/en'
 import { getSetting, nextOpening } from '@/server/services/settings'
@@ -46,6 +48,12 @@ export async function tapAttempt(leadId: string, channel: AttemptChannel, user: 
     channel,
     followUpNo: Math.min(lead.attemptCount + 1, MAX_FOLLOW_UPS),
     serverTapAt: new Date(),
+  })
+  await notifyWatchers({ id: user.id, departmentId: user.departmentId }, 'contact_tap', {
+    title: `${user.name} tapped ${ATTEMPT_CHANNEL_META[channel].label} for ${contact.name} (${lead.leadNo})`,
+    body: `Try ${Math.min(lead.attemptCount + 1, MAX_FOLLOW_UPS)} of ${MAX_FOLLOW_UPS}`,
+    link: `/leads/${lead._id}`,
+    dedupeKey: `tap:${attempt._id}`,
   })
   const phone = channel === 'phone_call' ? contact.phones[0] : (contact.whatsappE164 ?? contact.phones[0])
   const greeting = `Assalam o Alaikum ${contact.name}, this is ${user.name.split(' ')[0]} from ${en.app.company}. You asked about solar — is now a good time to talk?`
@@ -240,7 +248,36 @@ async function applyOutcome(attempt: InstanceType<typeof ContactAttempt>, input:
     const what = status === 'won' ? `marked WON (Rs ${wonValuePkr?.toLocaleString('en-PK')})` : deadNow ? 'marked Dead after 3 no-answers' : status === 'junk' ? 'marked wrong number' : 'marked not interested'
     await notify({ userIds: await managersOf(lead.departmentId), type: deadNow ? 'lead_unreachable' : 'lead_closed', title: `${user.name} ${what} — please check`, body: lead.leadNo, link: '/review', dedupeKey: `closed:${attempt._id}` })
   }
+  const contactName = (await Contact.findById(lead.contactId).select('name').lean())?.name ?? 'customer'
+  const what = [CALL_RESULT_META[input.result].label, input.response ? CUSTOMER_RESPONSE_META[input.response].label : null].filter(Boolean).join(' — ')
+  await notifyWatchers({ id: user.id, departmentId: user.departmentId }, 'result_logged', {
+    title: `${user.name}: ${what} · ${contactName} (${lead.leadNo})`,
+    body: [counted ? `Try ${attemptCount} of ${MAX_FOLLOW_UPS}` : null, input.remarks?.slice(0, 80)].filter(Boolean).join(' · '),
+    link: `/leads/${lead._id}`,
+    dedupeKey: `result:${attempt._id}`,
+  })
   if (status !== 'open' && lead.teamId) await drainQueue(lead.teamId)
+}
+
+/**
+ * "I tapped by mistake": closes an unsaved tap without counting it as a try (nothing else changes).
+ * Only right after the tap (time away under 2 minutes) — after a real call the result must be saved.
+ */
+export async function cancelAttempt(attemptId: string, user: SessionUser, away?: { leftAt?: Date; returnedAt?: Date }): Promise<void> {
+  await connectDb()
+  if (!isObjectId(attemptId)) throw new UserError('Call not found')
+  const attempt = await ContactAttempt.findOne({ _id: oid(attemptId), agentId: oid(user.id), outcomeAt: null })
+  if (!attempt) throw new UserError('This tap is already saved')
+  const now = new Date()
+  const awayMs = away?.leftAt && away.returnedAt ? away.returnedAt.getTime() - away.leftAt.getTime() : 0
+  if (awayMs > 2 * 60_000 || now.getTime() - attempt.serverTapAt.getTime() > 30 * 60_000) {
+    throw new UserError('You were away from the app for a while — please save what happened instead (e.g. "Couldn\'t call now").')
+  }
+  const claimed = await ContactAttempt.findOneAndUpdate({ _id: attempt._id, outcomeAt: null }, { $set: { outcomeAt: now, cancelled: true, remarks: 'Tapped by mistake', proofStatus: 'logged' } }, { returnDocument: 'after' })
+  if (!claimed) throw new UserError('This tap is already saved')
+  await logActivity(attempt.leadId, 'note_added', user.id, { text: `Tap on ${ATTEMPT_CHANNEL_META[attempt.channel as AttemptChannel].label} cancelled — tapped by mistake` })
+  const lead = await Lead.findById(attempt.leadId).select('leadNo').lean()
+  await notifyWatchers({ id: user.id, departmentId: user.departmentId }, 'tap_cancelled', { title: `${user.name} cancelled a tap (by mistake) · ${lead?.leadNo ?? ''}`, link: `/leads/${attempt.leadId}`, dedupeKey: `cancel:${attempt._id}` })
 }
 
 /**

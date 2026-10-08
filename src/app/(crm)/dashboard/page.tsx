@@ -17,7 +17,8 @@ import { formatPktDateTime } from '@/lib/dates-pkt'
 import { requireUser } from '@/server/auth/session'
 import { acceptLeadAction, checkInAction, checkOutAction, toggleBreakAction } from '@/server/actions'
 import { getAttendance } from '@/server/services/assignment'
-import { getKpis, getTeamBoard, listFollowUps, listLeads, listVisits } from '@/server/services/queries'
+import { getKpis, getQueuePanels, getTeamBoard, listFollowUps, listLeads, listVisits } from '@/server/services/queries'
+import { QueuePanel } from '@/components/crm/queue-panel'
 
 export const metadata = { title: 'Dashboard' }
 
@@ -104,7 +105,7 @@ export default async function DashboardPage(props: PageProps<'/dashboard'>) {
     )
   }
 
-  const [kpis, board, queue, followUps] = await Promise.all([getKpis(user), getTeamBoard(user), listLeads(user, { view: 'unassigned' }), listFollowUps(user)])
+  const [kpis, board, queue, followUps, queuePanels] = await Promise.all([getKpis(user), getTeamBoard(user), listLeads(user, { view: 'unassigned' }), listFollowUps(user), getQueuePanels(user)])
   const overdue = followUps.filter((f) => f.isOverdue)
   const checkedIn = board.filter((m) => m.attendance === 'checked_in').length
   return (
@@ -121,7 +122,8 @@ export default async function DashboardPage(props: PageProps<'/dashboard'>) {
           {board.length === 0 ? <EmptyState title="No agents yet" description="Add agents in Settings → Users." /> : board.map((m) => <TeamMemberRow key={m.id} member={m} now={now} />)}
         </SectionCard>
         <SectionCard title={`Waiting for assignment (${queue.total})`} actions={<Button asChild variant="outline" size="touch"><Link href="/leads?view=unassigned">Open</Link></Button>}>
-          {queue.rows.length === 0 ? <EmptyState title="Queue is empty" /> : <div className="space-y-2">{queue.rows.slice(0, 5).map((l) => <LeadCard key={l.id} lead={l} href={`/leads/${l.id}`} />)}</div>}
+          <QueuePanel teams={queuePanels} />
+          {queue.rows.length === 0 ? null : <div className="mt-3 space-y-2">{queue.rows.slice(0, 5).map((l) => <LeadCard key={l.id} lead={l} href={`/leads/${l.id}`} />)}</div>}
         </SectionCard>
       </div>
       <KpiGrid items={kpis} />

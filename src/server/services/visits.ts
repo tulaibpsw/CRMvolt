@@ -9,6 +9,7 @@ import type { SessionUser } from '@/server/auth/session'
 import { loadLeadFor, loadVisitFor } from '@/server/auth/guards'
 import { logActivity, notify, oid, UserError } from '@/server/services/common'
 import { managersOf } from '@/server/services/assignment'
+import { notifyWatchers } from '@/server/services/watch'
 
 /**
  * Pure: the client's rule (Excel "Visits"): give the visit to the field agent with the LEAST active kW,
@@ -121,6 +122,7 @@ export async function updateVisit(visitId: string, status: VisitStatus, feedback
   if (status === 'not_interested' && previousAgent && !visit.triedAgentIds.map(String).includes(previousAgent)) visit.triedAgentIds.push(oid(previousAgent))
   await visit.save()
   if (visit.leadId) await logActivity(visit.leadId, 'visit_updated', user.id, { visitId, status, feedback })
+  if (isField) await notifyWatchers({ id: user.id, departmentId: user.departmentId }, 'visit_update', { title: `${user.name}: visit ${status.replace('_', ' ')} · ${visit.customerName}`, body: feedback.slice(0, 80), link: '/visits', dedupeKey: `visit:${visit._id}:${status}:${Date.now()}` })
   if (status === 'interested' && visit.leadId) {
     await Lead.updateOne({ _id: visit.leadId, stage: { $in: ['site_survey', 'interested', 'contacted', 'new'] } }, { stage: 'quotation_pending', stageChangedAt: new Date() })
   }

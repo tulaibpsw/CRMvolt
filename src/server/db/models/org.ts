@@ -1,6 +1,6 @@
 /** Organisation: departments, teams (the round-robin order), users, attendance. */
 import { Schema, type InferSchemaType } from 'mongoose'
-import { ATTENDANCE_STATUSES, DEFAULT_ROLE, DEPARTMENTS, ROLES, STAGES, TEAM_DEFAULTS } from '@/domain/constants'
+import { ATTENDANCE_STATUSES, DEFAULT_ROLE, DEPARTMENTS, ROLES, STAGES, TEAM_DEFAULTS, AGENT_ACTIVITY_EVENTS, ALERT_SCOPES } from '@/domain/constants'
 import { isE164 } from '@/lib/phone'
 import { auditFields, defineModel, softDelete } from '@/server/db/plugins'
 
@@ -42,6 +42,8 @@ const teamSchema = new Schema(
     contactWithinMin: { type: Number, default: TEAM_DEFAULTS.contactWithinMin, min: 5, max: 240 },
     maxPendingAccept: { type: Number, default: TEAM_DEFAULTS.maxPendingAccept, min: 1, max: 20 },
     autoMoveOnAcceptTimeout: { type: Boolean, default: TEAM_DEFAULTS.autoMoveOnAcceptTimeout },
+    requireCheckIn: { type: Boolean, default: TEAM_DEFAULTS.requireCheckIn },
+    assignOutsideHours: { type: Boolean, default: TEAM_DEFAULTS.assignOutsideHours },
   },
   { timestamps: true },
 )
@@ -65,6 +67,18 @@ const userSchema = new Schema(
     autoPausedAt: { type: Date, default: null },
     /** Set when an admin/manager chose the password — the user must pick their own at next sign-in. */
     mustChangePassword: { type: Boolean, default: false },
+    /** Managers/admins: which employee actions they are alerted about (unset = manager default: everything, all employees). */
+    alertPrefs: {
+      type: new Schema(
+        {
+          events: [{ type: String, enum: AGENT_ACTIVITY_EVENTS }],
+          scope: { type: String, enum: ALERT_SCOPES, default: 'all' },
+          agentIds: [{ type: ObjectId, ref: 'User' }],
+        },
+        { _id: false },
+      ),
+      default: undefined,
+    },
     lastLoginAt: { type: Date, default: null },
   },
   { timestamps: true, collection: 'user' },

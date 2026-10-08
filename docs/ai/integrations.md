@@ -28,6 +28,11 @@
 - Show files only through short-lived signed delivery URLs generated on the server after the role check.
 - Compress images on the phone to ~150 KB; folder per lead: `volton/leads/<leadId>/<category>`. Skip videos (free-plan credits).
 
+## Assignment queue (why leads wait)
+- Queued states: waiting / manager_window / unassigned. `drainQueue` gives them out oldest-first on check-in, accept, close, every cron tick and every page poll (`maybeTick`) — once their hold (office hours, manager window) has ended. No cron needed for this.
+- Team switches: `requireCheckIn` (default on) and `assignOutsideHours` (default off). `queueReport()` explains in plain words why leads wait; managers have "Assign waiting leads now" (`assignQueuedNow`).
+- Manager alerts: `notifyWatchers(agent, event, …)` (src/server/services/watch.ts) after accept / tap / result / cancel / check-in-out / break / visit update. Never throws.
+
 ## Auth
 - Roles and dashboards: super admin → `/admin` (company overview, managers & admins, system health, audit). First owner: `/setup` with MASTER_KEY or `npm run create-super-admin -- <email> <password>`.
 - Own code, no library: `src/server/auth/*`. scrypt hashes; random session token in the httpOnly `volton_session` cookie, only its SHA-256 stored in `sessions` (30 days, TTL index). `proxy.ts` only checks the cookie exists — pages/actions call `requireUser`/`requireRole`, and data goes through `leadScope`/`visitScope`/`userScope`.

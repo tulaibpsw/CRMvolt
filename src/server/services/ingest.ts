@@ -97,7 +97,7 @@ export async function ingestLead(input: IngestInput): Promise<IngestResult> {
       departmentId: dept?._id ?? null,
       teamId: team?._id ?? null,
       receivedAt,
-      assignableAt: nextOpening(new Date(), hours),
+      assignableAt: team?.assignOutsideHours ? new Date() : nextOpening(new Date(), hours),
       source: { channel: input.channel, ...input.source },
       site: input.site,
       extra: input.extra && Object.keys(input.extra).length ? input.extra : undefined,

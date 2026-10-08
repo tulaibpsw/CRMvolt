@@ -39,6 +39,9 @@ erDiagram
 | `ratelimits` | key (e.g. login:user:x), count, resetAt | key unique; TTL on resetAt |
 | `sheetrows` | rowKey, tab, status (ingested/skipped/failed), leadId, tries, error, sheetRow | rowKey unique; {tab, status} |
 | `visits` | leadId, contactId, departmentId, customerName, phone, address, requirement, locationUrl, kw, scheduledAt, agentId (field agent), status, feedback, triedAgentIds[], assignedAt, completedAt | {agentId, status}; {status, scheduledAt} |
+| `teams` (extra) | requireCheckIn (only checked-in agents get leads, default on), assignOutsideHours (give out night leads at once, default off) | — |
+| `user.alertPrefs` | events[] (AGENT_ACTIVITY_EVENTS), scope all/selected, agentIds[] — unset = managers follow everything | — |
+| `contactattempts.cancelled` | "tapped by mistake" — not a try | — |
 | `attendances` | userId, date (PKT key), status, checkInAt, lastCheckInAt, checkOutAt, breaks[], location | {userId, date} unique |
 | `contacts` | name, phones[] (E.164), whatsappE164, email, city, area, address, type | phones unique (multikey) |
 | `leads` | leadNo, contactId, departmentId, teamId, stage, stageChangedAt, status, closedAt, lostReason, wonValuePkr, closeReview {status none/pending/approved/rejected, by, at}, receivedAt, assignableAt, source {channel, rowKey, metaLeadId, submittedAt, campaign/adset/ad/form ids+names, platform, ctwa{sourceId, sourceType, sourceUrl, headline, body, mediaType, image/video/thumbnailUrl, ctwaClid, welcomeMessage}}, assignment {agentId, state, assignedAt, assignedBy, method, acceptedAt, bounces}, firstContactAt, lastContactAt, attemptCount, noAnswerStreak, nextFollowUpAt, site{}, trading{}, extra, version | leadNo unique; {departmentId, stage, status}; {assignment.agentId, status, nextFollowUpAt}; **partial unique {contactId, departmentId} where status open**; partial unique source.metaLeadId / source.rowKey |

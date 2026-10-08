@@ -119,6 +119,8 @@ export const teamSettingsInput = z.object({
   maxPendingAccept: z.number().int().min(1).max(20),
   autoMoveOnAcceptTimeout: z.boolean(),
   paused: z.boolean(),
+  requireCheckIn: z.boolean(),
+  assignOutsideHours: z.boolean(),
 })
 
 export const teamOrderInput = z

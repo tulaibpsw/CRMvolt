@@ -182,6 +182,12 @@ export const ACTIVITY_TYPES = [
 ] as const
 export type ActivityType = (typeof ACTIVITY_TYPES)[number]
 
+/** Employee actions a manager can follow (Settings → My alerts). */
+export const AGENT_ACTIVITY_EVENTS = ['lead_accepted', 'contact_tap', 'result_logged', 'tap_cancelled', 'checked_in', 'checked_out', 'break', 'visit_update'] as const
+export type AgentActivityEvent = (typeof AGENT_ACTIVITY_EVENTS)[number]
+export const ALERT_SCOPES = ['all', 'selected'] as const
+export type AlertScope = (typeof ALERT_SCOPES)[number]
+
 export const NOTIFICATION_TYPES = [
   'new_lead',
   'lead_unassigned',
@@ -199,6 +205,10 @@ export const NOTIFICATION_TYPES = [
   'lead_closed',
   'auto_checked_out',
   'sheet_problem',
+  /** What an employee did (managers choose which ones in Settings → My alerts). */
+  'agent_activity',
+  /** A manager nudged an agent ("please call this lead now"). */
+  'manager_ping',
 ] as const
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]
 
@@ -324,4 +334,8 @@ export const TEAM_DEFAULTS = {
   maxPendingAccept: 3,
   autoMoveOnAcceptTimeout: false,
   paused: false,
+  /** Only checked-in agents get new leads (the original rule). Off = every active agent in the order. */
+  requireCheckIn: true,
+  /** Leads that arrive at night / on holidays are given out at once instead of waiting for the office to open. */
+  assignOutsideHours: false,
 } as const

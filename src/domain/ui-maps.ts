@@ -270,6 +270,8 @@ export const LABEL_ONLY_ENUMS = {
 /** Enums never shown to users. */
 export const INTERNAL_ENUMS = [
   'MESSAGE_DIRECTIONS',
+  'AGENT_ACTIVITY_EVENTS',
+  'ALERT_SCOPES',
   'CLOSE_REVIEW_STATUSES',
   'SHEET_ROW_STATUSES',
   'ACTIVE_VISIT_STATUSES',

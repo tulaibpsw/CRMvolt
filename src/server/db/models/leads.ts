@@ -226,6 +226,8 @@ const contactAttemptSchema = new Schema(
     response: { type: String, enum: CUSTOMER_RESPONSES, default: null },
     remarks: { type: String, trim: true, maxlength: 2000, default: null },
     durationSec: { type: Number, min: 0, default: null },
+    /** The agent said the tap was a mistake (no call/chat happened). Not counted as a try. */
+    cancelled: { type: Boolean, default: false },
     proof: {
       docIds: [{ type: ObjectId, ref: 'Document' }],
       phash: { type: String, default: null },

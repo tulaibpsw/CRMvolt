@@ -135,3 +135,31 @@ describe('Sheet column-change guard', () => {
     expect(keyColumnChange(before, { phone: 'phone_number', submittedAt: 'created_time', metaLeadId: 'id' })).toMatch(/new column "id"/)
   })
 })
+
+describe('lead journey (steps + what to do now)', () => {
+  const label = { result: (r: string) => r, response: (r: string) => r, when: (iso: string) => iso.slice(0, 10) }
+  it('walks Accept → Try 1–3 → Close → Manager check', async () => {
+    const { leadJourney } = await import('@/domain/lead-journey')
+    const base = { status: 'open' as const, closeReview: 'none', acceptWithinMin: 5, label: label as never }
+    const notAccepted = leadJourney({ ...base, assignmentState: 'assigned', attempts: [], assignedAt: '2026-10-08T06:00:00Z' })
+    expect(notAccepted.steps[0].state).toBe('current')
+    expect(notAccepted.next.title).toMatch(/Accept this lead/)
+    const first = leadJourney({ ...base, assignmentState: 'accepted', attempts: [] })
+    expect(first.next.title).toMatch(/First contact/)
+    expect(first.steps[1].state).toBe('current')
+    const tries = [
+      { tappedAt: '2026-10-06T06:00:00Z', loggedAt: '2026-10-06T06:01:00Z', result: 'no_answer' as const },
+      { tappedAt: '2026-10-07T06:00:00Z', loggedAt: '2026-10-07T06:01:00Z', result: 'could_not_call' as const }, // not a try
+      { tappedAt: '2026-10-07T07:00:00Z', loggedAt: '2026-10-07T07:01:00Z', cancelled: true }, // mistake, not a try
+    ]
+    const due = leadJourney({ ...base, assignmentState: 'accepted', attempts: tries, nextFollowUpAt: '2026-10-07T06:00:00Z', now: new Date('2026-10-08T06:00:00Z') })
+    expect(due.tryNumber).toBe(2)
+    expect(due.next.title).toMatch(/Try 2 of 3 is due now/)
+    const later = leadJourney({ ...base, assignmentState: 'accepted', attempts: tries, nextFollowUpAt: '2026-10-10T06:00:00Z', now: new Date('2026-10-08T06:00:00Z') })
+    expect(later.next.text).toMatch(/Nothing to do now/)
+    const won = leadJourney({ ...base, status: 'won', closeReview: 'pending', assignmentState: 'accepted', attempts: tries })
+    expect(won.steps.find((s) => s.key === 'close')?.state).toBe('done')
+    expect(won.steps.find((s) => s.key === 'check')?.state).toBe('current')
+    expect(won.next.title).toMatch(/Waiting for the manager/)
+  })
+})

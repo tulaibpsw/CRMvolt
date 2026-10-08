@@ -3,9 +3,10 @@ import { Types } from 'mongoose'
 import type { AssignmentMethod } from '@/domain/constants'
 import { pktDateKey } from '@/lib/dates-pkt'
 import { connectDb } from '@/server/db/connection'
-import { Attendance, Lead, LeadAssignment, Team, User } from '@/server/db/models'
+import { Attendance, AuditLog, Lead, LeadAssignment, Team, User } from '@/server/db/models'
 import { withTransaction } from '@/server/db/transaction'
 import { cancelJobs, logActivity, notify, oid, scheduleJob, UserError } from '@/server/services/common'
+import { notifyWatchers } from '@/server/services/watch'
 
 type Id = Types.ObjectId | string
 
@@ -23,21 +24,23 @@ export function pickNext(order: string[], rr: { lastUid: string | null; lastPos:
   return null
 }
 
-/** Agents of a team who can receive a lead right now: active, checked in (not on break), under the pending-accept cap. */
-export async function eligibleAgents(team: { memberOrder: Types.ObjectId[]; maxPendingAccept: number }): Promise<Set<string>> {
+/** Agents of a team who can receive a lead right now: active, checked in (unless the team allows everyone), not on break, under the pending-accept cap. */
+export async function eligibleAgents(team: { memberOrder: Types.ObjectId[]; maxPendingAccept: number; requireCheckIn?: boolean }): Promise<Set<string>> {
   const ids = team.memberOrder.map(String)
   if (ids.length === 0) return new Set()
   const today = pktDateKey(new Date())
   const [active, present, pending] = await Promise.all([
     User.find({ _id: { $in: ids }, role: 'agent', isActive: true, deletedAt: null, autoPausedAt: null }).select('_id').lean(),
-    Attendance.find({ userId: { $in: ids }, date: today, status: 'checked_in' }).select('userId').lean(),
+    Attendance.find({ userId: { $in: ids }, date: today }).select('userId status').lean(),
     Lead.aggregate<{ _id: Types.ObjectId; n: number }>([
       { $match: { 'assignment.agentId': { $in: team.memberOrder }, 'assignment.state': 'assigned', status: 'open' } },
       { $group: { _id: '$assignment.agentId', n: { $sum: 1 } } },
     ]),
   ])
   const activeSet = new Set(active.map((u) => String(u._id)))
-  const presentSet = new Set(present.map((a) => String(a.userId)))
+  const requireCheckIn = team.requireCheckIn !== false
+  const onBreak = new Set(present.filter((a) => a.status === 'on_break').map((a) => String(a.userId)))
+  const presentSet = requireCheckIn ? new Set(present.filter((a) => a.status === 'checked_in').map((a) => String(a.userId))) : new Set(ids.filter((id) => !onBreak.has(id)))
   const busy = new Set(pending.filter((p) => p.n >= team.maxPendingAccept).map((p) => String(p._id)))
   return new Set(ids.filter((id) => activeSet.has(id) && presentSet.has(id) && !busy.has(id)))
 }
@@ -164,6 +167,10 @@ export async function acceptLead(leadId: Id, userId: string): Promise<void> {
   await LeadAssignment.updateOne({ leadId: oid(leadId), agentId: oid(userId), endedAt: null }, { acceptedAt: now })
   await cancelJobs({ leadId: oid(leadId), kind: 'accept_due' })
   await logActivity(leadId, 'accepted', userId)
+  const agent = await User.findById(userId).select('name departmentId').lean()
+  if (agent) await notifyWatchers({ id: userId, departmentId: agent.departmentId }, 'lead_accepted', { title: `${agent.name} accepted ${updated.leadNo}`, link: `/leads/${leadId}`, dedupeKey: `accepted:${leadId}:${now.getTime()}` })
+  // A slot freed up under the pending-accept limit → give out the next waiting lead.
+  if (updated.teamId) await drainQueue(updated.teamId)
 }
 
 /** Take a lead away from its agent and put it back in the queue (deactivation, bulk move, transfer, reopen). */
@@ -175,25 +182,88 @@ export async function resetAssignment(leadId: Id, actorId: string | null, reason
   await logActivity(leadId, 'reassigned', actorId, { reason })
 }
 
-/** Assign waiting leads oldest-first while agents are eligible (on check-in, accept, close and every tick). Paused teams are skipped. */
+/** Lead states that are still in the queue (nobody holds the lead yet). */
+export const QUEUED_STATES = ['waiting', 'manager_window', 'unassigned'] as const
+
+/**
+ * Assign queued leads oldest-first while agents are eligible (on check-in, accept, close, every tick and every poll).
+ * Self-healing: also picks up leads whose manager window / office-hours hold has ended even if the timer never ran.
+ * Paused teams are skipped.
+ */
 export async function drainQueue(teamId?: Id | null): Promise<number> {
   await connectDb()
-  const paused = (await Team.find({ paused: true }).select('_id').lean()).map((t) => t._id)
-  const filter: Record<string, unknown> = { status: 'open', 'assignment.state': 'waiting', assignableAt: { $lte: new Date() }, deletedAt: null, teamId: { $nin: [...paused, null] } }
-  if (teamId) {
-    if (!Types.ObjectId.isValid(String(teamId))) return 0
-    filter.teamId = { $eq: oid(teamId), $nin: paused }
-  }
-  const waiting = await Lead.find(filter).sort({ receivedAt: 1 }).limit(50).select('_id teamId').lean()
+  if (teamId && !Types.ObjectId.isValid(String(teamId))) return 0
+  const teams = await Team.find(teamId ? { _id: oid(teamId), paused: { $ne: true } } : { paused: { $ne: true } }).lean()
+  if (!teams.length) return 0
+  const now = Date.now()
+  const waiting = await Lead.find({ status: 'open', deletedAt: null, teamId: { $in: teams.map((t) => t._id) }, 'assignment.state': { $in: QUEUED_STATES }, assignableAt: { $lte: new Date(now) } })
+    .sort({ receivedAt: 1 })
+    .limit(100)
+    .select('_id teamId assignableAt assignment.state')
+    .lean()
+  const windowMs = new Map(teams.map((t) => [String(t._id), (t.managerWindowMin ?? 0) * 60_000]))
   let assigned = 0
   const blocked = new Set<string>()
   for (const lead of waiting) {
-    if (blocked.has(String(lead.teamId))) continue
+    const team = String(lead.teamId)
+    if (blocked.has(team)) continue
+    // Manager window still open → the manager may pick an agent first.
+    if (lead.assignment?.state === 'manager_window' && lead.assignableAt.getTime() + (windowMs.get(team) ?? 0) > now) continue
     const agent = await autoAssign(lead._id)
     if (agent) assigned++
-    else blocked.add(String(lead.teamId))
+    else blocked.add(team)
   }
   return assigned
+}
+
+export interface QueueReport {
+  /** Leads ready to go out now. */
+  ready: number
+  /** Leads held until the office opens. */
+  held: number
+  heldUntil: Date | null
+  checkedIn: number
+  agents: number
+  reasons: string[]
+}
+
+/** Why leads are (not) going out — shown to managers next to the queue. */
+export async function queueReport(teamId: Id): Promise<QueueReport | null> {
+  await connectDb()
+  const team = await Team.findById(teamId).lean()
+  if (!team) return null
+  const now = new Date()
+  const base = { status: 'open', deletedAt: null, teamId: team._id, 'assignment.state': { $in: QUEUED_STATES } }
+  const [ready, held, firstHeld, eligible, present] = await Promise.all([
+    Lead.countDocuments({ ...base, assignableAt: { $lte: now } }),
+    Lead.countDocuments({ ...base, assignableAt: { $gt: now } }),
+    Lead.findOne({ ...base, assignableAt: { $gt: now } }).sort({ assignableAt: 1 }).select('assignableAt').lean(),
+    eligibleAgents(team),
+    Attendance.countDocuments({ userId: { $in: team.memberOrder }, date: pktDateKey(now), status: 'checked_in' }),
+  ])
+  const reasons: string[] = []
+  if (team.paused) reasons.push('Auto-assign is paused for this team (Team page → Timings).')
+  if (!team.memberOrder.length) reasons.push('No call agents in the team order — add them on the Team page.')
+  else if (team.requireCheckIn !== false && present === 0) reasons.push('Nobody is checked in. Leads go out as soon as an agent taps "Check in" (or turn off "only checked-in agents" on the Team page).')
+  else if (!eligible.size && ready) reasons.push(`Every available agent already has ${team.maxPendingAccept} leads waiting to accept — they must accept first.`)
+  if (held) reasons.push(`${held} lead(s) arrived outside office hours and are held until ${firstHeld ? firstHeld.assignableAt.toLocaleString('en-PK', { timeZone: 'Asia/Karachi', weekday: 'short', hour: 'numeric', minute: '2-digit' }) : 'the office opens'} — use "Assign now" or turn on "assign outside office hours".`)
+  return { ready, held, heldUntil: firstHeld?.assignableAt ?? null, checkedIn: present, agents: team.memberOrder.length, reasons }
+}
+
+/** Manager "Assign now": release held leads of the team and give out as many as possible right away. */
+export async function assignQueuedNow(teamId: Id, actorId: string): Promise<{ assigned: number; report: QueueReport | null }> {
+  await connectDb()
+  const team = await Team.findById(teamId).lean()
+  if (!team) return { assigned: 0, report: null }
+  const now = new Date()
+  const queued = await Lead.find({ status: 'open', deletedAt: null, teamId: team._id, 'assignment.state': { $in: QUEUED_STATES } }).select('_id').lean()
+  if (queued.length) {
+    await Lead.updateMany({ _id: { $in: queued.map((l) => l._id) } }, { $set: { assignableAt: now, 'assignment.state': 'waiting' } })
+    await cancelJobs({ leadId: { $in: queued.map((l) => l._id) }, kind: 'manager_window_end' })
+  }
+  const assigned = team.paused ? 0 : await drainQueue(team._id)
+  await AuditLog.create({ entity: 'team', entityId: team._id, action: 'update', after: { assignNow: queued.length, assigned }, actorId: oid(actorId) })
+  return { assigned, report: await queueReport(team._id) }
 }
 
 // ── Attendance ──
@@ -213,6 +283,7 @@ export async function checkIn(userId: string): Promise<void> {
   )
   await User.updateOne({ _id: oid(userId) }, { autoPausedAt: null })
   const user = await User.findById(userId).lean()
+  if (user) await notifyWatchers({ id: userId, departmentId: user.departmentId }, 'checked_in', { title: `${user.name} checked in`, link: '/team', dedupeKey: `checkin:${userId}:${now.getTime()}` })
   if (user?.departmentId) {
     const teams = await Team.find({ departmentId: user.departmentId }).select('_id').lean()
     for (const team of teams) await drainQueue(team._id)
@@ -233,12 +304,17 @@ export async function toggleBreak(userId: string): Promise<void> {
     row.status = 'on_break'
   }
   await row.save()
+  const who = await User.findById(userId).select('name departmentId').lean()
+  if (who) await notifyWatchers({ id: userId, departmentId: who.departmentId }, 'break', { title: `${who.name} ${row.status === 'on_break' ? 'started a break' : 'ended the break'}`, link: '/team', dedupeKey: `break:${userId}:${now.getTime()}` })
   if (row.status === 'checked_in') await checkIn(userId)
 }
 
 export async function checkOut(userId: string): Promise<void> {
   await connectDb()
-  await Attendance.updateOne({ userId: oid(userId), date: pktDateKey(new Date()) }, { status: 'checked_out', checkOutAt: new Date() })
+  const now = new Date()
+  await Attendance.updateOne({ userId: oid(userId), date: pktDateKey(now) }, { status: 'checked_out', checkOutAt: now })
+  const who = await User.findById(userId).select('name departmentId').lean()
+  if (who) await notifyWatchers({ id: userId, departmentId: who.departmentId }, 'checked_out', { title: `${who.name} checked out`, link: '/team', dedupeKey: `checkout:${userId}:${now.getTime()}` })
 }
 
 export { managersOf }

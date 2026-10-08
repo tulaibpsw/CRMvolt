@@ -16,13 +16,16 @@ import { ContactActions } from '@/components/crm/contact-actions'
 import { FollowUpItem } from '@/components/crm/follow-up-item'
 import { LeadHeader } from '@/components/crm/lead-header'
 import { LeadDetailsDialog } from '@/components/crm/lead-details-dialog'
+import { LeadJourney, NextStepCard } from '@/components/crm/lead-journey'
+import { leadJourney } from '@/domain/lead-journey'
+import { CUSTOMER_RESPONSE_META } from '@/domain/ui-maps'
 import { DEPARTMENTS, LOST_REASONS, PIPELINES, PROPERTY_TYPES, ROOF_TYPES, SHADING_LEVELS, type ActivityType, type CallResult, type Stage, type VisitStatus } from '@/domain/constants'
 import { ACTIVITY_TYPE_META, ATTEMPT_CHANNEL_META, CALL_RESULT_META, DEPARTMENT_META, STAGE_META, VISIT_STATUS_META, optionsFor } from '@/domain/ui-maps'
 import { en } from '@/i18n/en'
 import { formatPktDateTime } from '@/lib/dates-pkt'
 import { requireUser } from '@/server/auth/session'
 import { isManagerOrAdmin } from '@/server/auth/scope'
-import { acceptLeadAction, addNoteAction, assignLeadAction, changeStageAction, createVisitAction, reopenLeadAction, saveSiteAction, transferDepartmentAction } from '@/server/actions'
+import { acceptLeadAction, addNoteAction, assignLeadAction, pingAgentAction, changeStageAction, createVisitAction, reopenLeadAction, saveSiteAction, transferDepartmentAction } from '@/server/actions'
 import { getLeadDetail, getTeamBoard } from '@/server/services/queries'
 import { AGENT_STAGES } from '@/server/services/leads'
 import { formatPkrCompact } from '@/lib/money'
@@ -49,6 +52,21 @@ export default async function LeadPage(props: PageProps<'/leads/[id]'>) {
   const mine = lead.agent?.id === user.id
   const agents = manager ? (await getTeamBoard(user)).filter((m) => m.role === 'agent') : []
   const site = raw.site as Record<string, string | number | boolean | undefined>
+  // Steps + "what to do now" (src/domain/lead-journey.ts)
+  const ordered = [...attempts].reverse()
+  const journey = leadJourney({
+    assignmentState: lead.assignmentState,
+    status: lead.status,
+    closeReview: raw.closeReview,
+    attempts: ordered.map((a) => ({ tappedAt: a.tappedAt, loggedAt: a.loggedAt, result: a.result, response: a.response, cancelled: a.cancelled })),
+    nextFollowUpAt: lead.nextFollowUpAt,
+    assignedAt: lead.sla?.startedAt,
+    acceptWithinMin: raw.acceptWithinMin,
+    agentName: mine ? 'You' : lead.agent?.name,
+    label: { result: (r) => CALL_RESULT_META[r].label, response: (r) => CUSTOMER_RESPONSE_META[r].label, when: (iso) => formatPktDateTime(new Date(iso)) },
+  })
+  const last = ordered.filter((a) => a.loggedAt && !a.cancelled && a.result).pop()
+  const lastResult = last ? `${CALL_RESULT_META[last.result!].label}${last.response ? ` — ${CUSTOMER_RESPONSE_META[last.response].label}` : ''} · ${formatPktDateTime(new Date(last.loggedAt!))}` : null
   const formAnswers = [
     site.systemSizeRange ? en.systemSizeRange[site.systemSizeRange as keyof typeof en.systemSizeRange] : null,
     site.installLocation ? en.installLocation[site.installLocation as keyof typeof en.installLocation] : null,
@@ -59,14 +77,14 @@ export default async function LeadPage(props: PageProps<'/leads/[id]'>) {
     <>
       <PageHeader title={lead.name} backHref="/leads" />
       <LeadHeader lead={lead} actions={user.role !== 'field_agent' ? <LeadDetailsDialog leadId={lead.id} label={`Sheet details${Object.keys(raw.extra).length && !lead.maskPhone ? ` (${Object.keys(raw.extra).length})` : ''}`} /> : null} />
-      {raw.closeReview === 'pending' ? (
-        <p role="status" className="rounded-xl bg-tone-warning-soft px-4 py-3 text-sm font-medium text-tone-warning-soft-foreground">
-          {lead.status === 'won' ? `Marked WON (${formatPkrCompact(raw.wonValuePkr ?? 0)}) by the agent` : 'Closed by the agent'} — waiting for the manager to check it in Proof review.
-        </p>
+      {user.role !== 'field_agent' ? (
+        <section aria-label="Lead steps" className="space-y-3">
+          <NextStepCard next={raw.closeReview === 'pending' && lead.status === 'won' ? { ...journey.next, text: `Marked WON (${formatPkrCompact(raw.wonValuePkr ?? 0)}) — ${journey.next.text}` } : journey.next} />
+        </section>
       ) : null}
 
       {lead.status === 'open' && (mine || manager) ? (
-        <SectionCard title="Contact the customer" description="Every tap is saved as proof. After the call or chat, log what happened.">
+        <SectionCard title={mine && lead.assignmentState === 'assigned' ? 'Step 1 · Accept' : 'Contact the customer'} description={mine && lead.assignmentState === 'assigned' ? 'Accept first — then the number appears and you can call or WhatsApp.' : 'Every tap is saved as proof. After the call or chat, the app asks what happened.'}>
           {mine && lead.assignmentState === 'assigned' ? (
             <form action={acceptLeadAction}>
               <input type="hidden" name="leadId" value={lead.id} />
@@ -76,10 +94,27 @@ export default async function LeadPage(props: PageProps<'/leads/[id]'>) {
             </form>
           ) : (
             <div className="space-y-3">
-              <ContactActions leadId={lead.id} pendingAttemptId={raw.pendingAttempt} attemptCount={lead.attemptCount} />
+              <ContactActions leadId={lead.id} leadName={lead.name} leadNo={lead.leadNo} attemptCount={journey.triesDone} pending={raw.pendingAttempt} lastResult={lastResult} stageLabel={STAGE_META[lead.stage].label} />
             </div>
           )}
         </SectionCard>
+      ) : null}
+
+      {user.role !== 'field_agent' ? (
+        <section aria-label="Lead progress" className="space-y-3">
+          <LeadJourney steps={journey.steps} />
+          <details className="rounded-xl px-4 ring-1 ring-foreground/10">
+            <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium">How a lead works (steps)</summary>
+            <ol className="list-decimal space-y-1 ps-5 pb-3 text-sm text-muted-foreground">
+              <li>The lead arrives (Google Sheet / WhatsApp / added by hand) and goes to the next checked-in agent, or the manager assigns it.</li>
+              <li>The agent taps <b>Accept</b> within {raw.acceptWithinMin} minutes — then the customer&apos;s number appears.</li>
+              <li><b>Try 1</b>: tap WhatsApp, WA call or Call. Coming back to the app opens “What happened?” — save the result every time.</li>
+              <li>No answer → <b>Try 2</b> the next day, then <b>Try 3</b> 3 days later (reminders come automatically, in office hours).</li>
+              <li>Close the lead: <b>Deal done</b> (with the value) or <b>Not interested</b>. Three no-answers on different days → <b>Dead</b>.</li>
+              <li>The manager checks every close in <b>Proof review</b>: OK keeps it, Dispute re-opens it for another agent. Sales count after OK.</li>
+            </ol>
+          </details>
+        </section>
       ) : null}
 
       {manager ? (
@@ -106,6 +141,16 @@ export default async function LeadPage(props: PageProps<'/leads/[id]'>) {
                 Move
               </Button>
             </ActionForm>
+            {lead.agent && lead.status === 'open' ? (
+              <ActionForm action={pingAgentAction} className="space-y-2">
+                <input type="hidden" name="leadId" value={lead.id} />
+                <input type="hidden" name="agentId" value={lead.agent.id} />
+                <TextField label={`Ping ${lead.agent.name}`} name="message" maxLength={200} placeholder="e.g. Please call this customer now" />
+                <Button type="submit" variant="outline" size="touch" className="w-full">
+                  Send ping
+                </Button>
+              </ActionForm>
+            ) : null}
             {lead.status !== 'open' ? (
               <ActionForm action={reopenLeadAction} className="self-end">
                 <input type="hidden" name="leadId" value={lead.id} />

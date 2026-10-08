@@ -16,7 +16,8 @@ import type { LeadSummary } from '@/domain/view-models'
 import { formatPktDateTime } from '@/lib/dates-pkt'
 import { formatPhone, maskPhone } from '@/lib/phone'
 import { requireUser } from '@/server/auth/session'
-import { LEAD_VIEWS, PAGE_SIZE, listLeads, type LeadView } from '@/server/services/queries'
+import { LEAD_VIEWS, PAGE_SIZE, getQueuePanels, listLeads, type LeadView } from '@/server/services/queries'
+import { QueuePanel } from '@/components/crm/queue-panel'
 
 export const metadata = { title: 'Leads' }
 
@@ -67,6 +68,7 @@ export default async function LeadsPage(props: PageProps<'/leads'>) {
     { key: 'details', header: 'Details', cell: (l) => <LeadDetailsDialog leadId={l.id} compact /> },
   ]
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const queuePanels = view === 'unassigned' && user.role !== 'agent' ? await getQueuePanels(user) : []
   return (
     <>
       <PageHeader
@@ -89,6 +91,7 @@ export default async function LeadsPage(props: PageProps<'/leads'>) {
       <Suspense>
         <SearchBox />
       </Suspense>
+      {queuePanels.length ? <QueuePanel teams={queuePanels} /> : null}
       <FilterBar>
         {views.map((v) => (
           <FilterChip key={v} label={VIEW_LABEL[v]} href={href({ view: v, page: undefined })} active={v === view} count={counts[v]} />

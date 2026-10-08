@@ -3,6 +3,9 @@ import { ActionForm } from '@/components/common/action-form'
 import { SelectField, TextField } from '@/components/common/fields'
 import { UsernameField } from '@/components/common/username-field'
 import { SheetSources } from '@/components/crm/sheet-sources'
+import { AlertPrefsForm } from '@/components/crm/alert-prefs-form'
+import { User } from '@/server/db/models'
+import { prefsOf } from '@/server/services/watch'
 import { PageHeader } from '@/components/common/page-header'
 import { SectionCard } from '@/components/common/section-card'
 import { UserAdminList } from '@/components/crm/user-admin-list'
@@ -33,6 +36,9 @@ export default async function SettingsPage() {
   const admin = isAdminRole(user.role)
   await connectDb()
   const [users, departments, allSheets, sheetStatus, hours, theme] = await Promise.all([listUsers(user), listDepartments(), getSheetSources(), getSetting('sheet_status'), getSetting('working_hours'), getSetting('theme')])
+  const me = await User.findById(user.id).select('role alertPrefs').lean()
+  const myAlerts = prefsOf(me ?? { role: user.role })
+  const employees = users.filter((u) => (u.role === 'agent' || u.role === 'field_agent') && u.isActive).map((u) => ({ id: u.id, name: u.name, role: u.role }))
   // Managers see and manage only their department's sheets.
   const sheets = admin ? allSheets : allSheets.filter((s) => s.department === user.departmentCode)
   const statusOf: Record<string, Record<string, SheetTabStatus | undefined>> = Object.fromEntries(sheets.map((s) => [s.id, Object.fromEntries(s.tabs.map((t) => [t, sheetStatus[statusKey(s, t)]]))]))
@@ -62,6 +68,12 @@ export default async function SettingsPage() {
           </ActionForm>
         </div>
       </SectionCard>
+
+      <section id="my-alerts" className="scroll-mt-20">
+        <SectionCard title="My alerts" description="Choose what your employees do that you want to hear about — for everyone, or only some people.">
+          <AlertPrefsForm prefs={myAlerts} employees={employees} />
+        </SectionCard>
+      </section>
 
       <section id="google-sheets" className="scroll-mt-20">
         <SectionCard title="Google Sheets" description={admin ? 'Every connected Sheet, by department. New rows are synced every minute.' : 'Connect your department\'s leads Sheet. New rows are synced every minute and go to your team.'}>

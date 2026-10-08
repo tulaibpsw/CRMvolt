@@ -48,12 +48,15 @@ avatar · badge · button · card · checkbox · dialog · dropdown-menu · inpu
 | TeamMemberRow | team-member-row.tsx | `member: TeamMemberView, now: Date` |
 | MessageBubble | message-bubble.tsx | `message: MessageView` |
 | KpiGrid | kpi-grid.tsx | `items: KpiItem[]` — PDF KPI labels |
-| ContactActions (client) | contact-actions.tsx | `leadId, pendingAttemptId` — big WhatsApp / WA call / Call tiles, server-timed tap, outcome sheet + screenshot upload |
+| ContactActions (client) | contact-actions.tsx | `leadId, leadName, leadNo, attemptCount, pending, lastResult, stageLabel` — big WhatsApp / WA call / Call tiles; outcome sheet explains why it opened (back from WhatsApp / unsaved tap / second tap), try X of 3, last result, "what happens next", "I tapped by mistake" |
 | ChatPanel (client) | chat-panel.tsx | `leadId, messages` — WhatsApp thread + send box |
 | NotificationBell (client) | notification-bell.tsx | — polls `/api/me/poll` every 20 s |
 | QuickAddLead (client) | quick-add-lead.tsx | — manual lead sheet |
 | LeadDetailsDialog (client) | lead-details-dialog.tsx | `leadId, label?, compact?` — "Sheet details" pop-up: source, form answers and every extra Sheet column (loads on open) |
 | SheetSources / SheetColumnGuide | sheet-sources.tsx | `sources, statusOf, isAdmin, defaultDepartment` — Settings → Google Sheets cards + the column rules |
+| NextStepCard / LeadJourney | lead-journey.tsx | `next` / `steps` from `leadJourney()` (src/domain/lead-journey.ts) — "what to do now" + Accept → Try 1–3 → Close → Manager check |
+| QueuePanel | queue-panel.tsx | `teams` from `getQueuePanels()` — why leads wait + "Assign waiting leads now" |
+| AlertPrefsForm | alert-prefs-form.tsx | `prefs, employees` — Settings → My alerts |
 | UserAdminList | user-admin-list.tsx | `users, viewer` — users with the actions the viewer may use (deactivate, temp password, remove) |
 
 View-model types: `src/domain/view-models.ts`. Demo data: `src/dev/fixtures.ts`.

@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation'
 import { refresh, revalidatePath } from 'next/cache'
 import { headers } from 'next/headers'
 import { z } from 'zod'
-import { ATTEMPT_CHANNELS, DEPARTMENTS, LOST_REASONS, REVIEW_STATUSES, ROLES, STAGES, VISIT_STATUSES, type AttemptChannel, type Role } from '@/domain/constants'
+import { AGENT_ACTIVITY_EVENTS, ATTEMPT_CHANNELS, DEPARTMENTS, LOST_REASONS, REVIEW_STATUSES, ROLES, STAGES, VISIT_STATUSES, type AttemptChannel, type Role } from '@/domain/constants'
 import { attemptOutcomeInput, leadQuickAddInput, siteBasicsInput, teamSettingsInput } from '@/domain/schemas'
 import { getSheetSources, previewSheet, pullSheet, saveSheetSources, spreadsheetIdFrom, type PullResult } from '@/server/services/sheet'
 import type { SheetSource } from '@/domain/sheet-columns'
@@ -20,8 +20,8 @@ import { hashPassword, passwordProblem, safeEqual, verifyPassword, verifyPasswor
 import { endSession, requireRole, requireUser, revokeSessions, startSession, type SessionUser } from '@/server/auth/session'
 import { isObjectId, loadLeadFor, loadManagedUser, safeNext } from '@/server/auth/guards'
 import { isAdminRole, isManagerOrAdmin } from '@/server/auth/scope'
-import { acceptLead, autoAssign, checkIn, checkOut, drainQueue, manualAssign, managersOf, resetAssignment, toggleBreak } from '@/server/services/assignment'
-import { logOutcome, reviewAttempt, tapAttempt } from '@/server/services/attempts'
+import { acceptLead, assignQueuedNow, autoAssign, checkIn, checkOut, drainQueue, manualAssign, managersOf, resetAssignment, toggleBreak } from '@/server/services/assignment'
+import { cancelAttempt, logOutcome, reviewAttempt, tapAttempt } from '@/server/services/attempts'
 import { errorState, logActivity, notify, oid, UserError, type ActionState } from '@/server/services/common'
 import { ingestLead } from '@/server/services/ingest'
 import { changeStage, reopenLead, transferLead } from '@/server/services/leads'
@@ -253,6 +253,21 @@ export async function assignLeadAction(_prev: ActionState, fd: FormData): Promis
     await manualAssign(lead._id, agentId, user.id)
     refresh()
     return { ok: true, message: `Assigned to ${target.name}` }
+  })
+}
+
+/** Manager: give out every queued lead of my team now (also leads held for office hours), with the reason if some cannot go. */
+export async function assignQueuedNowAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
+  const user = await requireRole('admin', 'manager')
+  return attempt(async () => {
+    const teamId = str(fd, 'teamId')
+    const team = isObjectId(teamId) ? await Team.findById(teamId).lean() : null
+    if (!team || (user.role === 'manager' && String(team.departmentId) !== user.departmentId)) return { ok: false, message: 'Team not found' }
+    const { assigned, report } = await assignQueuedNow(team._id, user.id)
+    refresh()
+    const left = (report?.ready ?? 0) + (report?.held ?? 0)
+    const why = report?.reasons.join(' ') || 'try again in a minute.'
+    return { ok: assigned > 0 || left === 0, message: left ? `${assigned} assigned. ${left} still waiting: ${why}` : `${assigned} assigned — the queue is empty.` }
   })
 }
 
@@ -568,6 +583,8 @@ export async function updateTeamSettingsAction(_prev: ActionState, fd: FormData)
       maxPendingAccept: num(fd, 'maxPendingAccept'),
       autoMoveOnAcceptTimeout: fd.get('autoMoveOnAcceptTimeout') === 'on',
       paused: fd.get('paused') === 'on',
+      requireCheckIn: fd.get('requireCheckIn') === 'on',
+      assignOutsideHours: fd.get('assignOutsideHours') === 'on',
     })
     const team = isObjectId(fd.get('teamId')) ? await Team.findById(String(fd.get('teamId'))) : null
     if (!team || (actor.role === 'manager' && String(team.departmentId) !== actor.departmentId)) return { ok: false, message: 'Not allowed' }
@@ -758,4 +775,49 @@ export async function getLeadDetailsAction(leadId: string): Promise<LeadDetailsV
   } catch (error) {
     return { ok: false, message: errorState(error)?.message ?? 'Could not load' }
   }
+}
+
+// ── Mistaken taps, manager pings, my alerts ──
+
+export async function cancelAttemptAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
+  const user = await requireRole('admin', 'manager', 'agent')
+  return attempt(async () => {
+    const ms = (key: string) => {
+      const v = num(fd, key)
+      return v !== undefined && v > 0 ? new Date(v) : undefined
+    }
+    await cancelAttempt(String(fd.get('attemptId') ?? ''), user, { leftAt: ms('leftAt'), returnedAt: ms('returnedAt') })
+    refresh()
+    return { ok: true, message: 'Cancelled — it does not count as a try.' }
+  })
+}
+
+/** Manager → agent nudge ("please call this lead now"). Shown to the agent as an alert and on the lead's timeline. */
+export async function pingAgentAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireRole('admin', 'manager')
+  return attempt(async () => {
+    const target = await loadManagedUser(actor, fd.get('agentId'), ['agent', 'field_agent'])
+    const leadId = str(fd, 'leadId')
+    const lead = leadId ? await loadLeadFor(actor, leadId, 'manage') : null
+    const text = (str(fd, 'message') ?? (lead ? 'Please work on this lead now.' : 'Please check your leads.')).slice(0, 200)
+    if ((await hit(`ping:${actor.id}:${target._id}`, 20, 60 * 60_000)).blocked) return { ok: false, message: 'Too many pings to this person — wait a while.' }
+    await notify({ userIds: [target._id], type: 'manager_ping', title: `${actor.name}: ${text}`, body: lead ? lead.leadNo : '', link: lead ? `/leads/${lead._id}` : '/dashboard', dedupeKey: `ping:${actor.id}:${target._id}:${Date.now()}` })
+    if (lead) await logActivity(lead._id, 'note_added', actor.id, { text: `Pinged ${target.name}: ${text}` })
+    return { ok: true, message: `${target.name} was pinged.` }
+  })
+}
+
+/** Settings → My alerts: which employee actions this manager/admin is told about, for whom. */
+export async function saveAlertPrefsAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireRole('admin', 'manager')
+  return attempt(async () => {
+    const events = fd.getAll('events').map(String).filter((e) => (AGENT_ACTIVITY_EVENTS as readonly string[]).includes(e))
+    const scope = fd.get('scope') === 'selected' ? 'selected' : 'all'
+    const picked = fd.getAll('agentIds').map(String).filter(isObjectId)
+    const allowed = await User.find({ _id: { $in: picked }, role: { $in: ['agent', 'field_agent'] }, deletedAt: null, ...(actor.role === 'manager' ? { departmentId: oid(actor.departmentId!) } : {}) }).select('_id').lean()
+    if (scope === 'selected' && !allowed.length) return { ok: false, message: 'Tick at least one employee, or choose "All my employees".' }
+    await User.updateOne({ _id: oid(actor.id) }, { alertPrefs: { events, scope, agentIds: allowed.map((a) => a._id) } })
+    refresh()
+    return { ok: true, message: events.length ? `Saved — you will get ${events.length} kind(s) of alerts.` : 'Saved — employee alerts are off.' }
+  })
 }
