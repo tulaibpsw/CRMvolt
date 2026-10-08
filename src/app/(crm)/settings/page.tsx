@@ -1,20 +1,21 @@
 import { Button } from '@/components/ui/button'
 import { ActionForm } from '@/components/common/action-form'
-import { SelectField, TextAreaField, TextField } from '@/components/common/fields'
+import { SelectField, TextField } from '@/components/common/fields'
+import { UsernameField } from '@/components/common/username-field'
+import { SheetSources } from '@/components/crm/sheet-sources'
 import { PageHeader } from '@/components/common/page-header'
 import { SectionCard } from '@/components/common/section-card'
-import { StatusBadge } from '@/components/common/status-badge'
 import { UserAdminList } from '@/components/crm/user-admin-list'
 import type { Role } from '@/domain/constants'
 import { en } from '@/i18n/en'
 import { requireRole } from '@/server/auth/session'
 import { isAdminRole } from '@/server/auth/scope'
 import { connectDb } from '@/server/db/connection'
-import { SheetRow } from '@/server/db/models'
-import { createUserAction, pullSheetAction, saveSheetConfigAction, saveThemeAction, saveWorkingHoursAction } from '@/server/actions'
+import { createUserAction, saveThemeAction, saveWorkingHoursAction } from '@/server/actions'
 import { listDepartments, listUsers } from '@/server/services/queries'
 import { getSetting } from '@/server/services/settings'
-import { previewSheet } from '@/server/services/sheet'
+import { getSheetSources, statusKey } from '@/server/services/sheet'
+import type { SheetTabStatus } from '@/domain/sheet-columns'
 import { THEME_PRESETS } from '@/styles/runtime-theme'
 
 export const metadata = { title: 'Settings' }
@@ -31,14 +32,10 @@ export default async function SettingsPage() {
   const user = await requireRole('admin', 'manager')
   const admin = isAdminRole(user.role)
   await connectDb()
-  const [users, departments, sheet, hours, theme] = await Promise.all([listUsers(user), listDepartments(), getSetting('sheet_config'), getSetting('working_hours'), getSetting('theme')])
-  const [preview, rowStats, failedRows] = admin
-    ? await Promise.all([
-        sheet.spreadsheetId ? previewSheet().catch((e: Error) => e.message) : Promise.resolve(null),
-        SheetRow.aggregate<{ _id: string; n: number; last: Date }>([{ $group: { _id: '$status', n: { $sum: 1 }, last: { $max: '$updatedAt' } } }]),
-        SheetRow.find({ status: 'failed' }).sort({ updatedAt: -1 }).limit(5).lean(),
-      ])
-    : [null, [], []]
+  const [users, departments, allSheets, sheetStatus, hours, theme] = await Promise.all([listUsers(user), listDepartments(), getSheetSources(), getSetting('sheet_status'), getSetting('working_hours'), getSetting('theme')])
+  // Managers see and manage only their department's sheets.
+  const sheets = admin ? allSheets : allSheets.filter((s) => s.department === user.departmentCode)
+  const statusOf: Record<string, Record<string, SheetTabStatus | undefined>> = Object.fromEntries(sheets.map((s) => [s.id, Object.fromEntries(s.tabs.map((t) => [t, sheetStatus[statusKey(s, t)]]))]))
   const roleOptions = creatable(user.role).map((r) => ({ value: r, label: en.role[r] }))
 
   return (
@@ -52,10 +49,10 @@ export default async function SettingsPage() {
             <p className="font-medium">Add a user</p>
             <TextField label="Full name" name="name" required />
             <div className="grid gap-3 sm:grid-cols-2">
-              <TextField label="Username (for sign in)" name="username" required autoCapitalize="none" autoComplete="off" pattern="[a-z0-9._\-]{3,30}" />
-              <TextField label="Temporary password (8+)" name="password" type="text" minLength={8} required autoComplete="off" hint="They change it at first sign-in" />
-              <TextField label="Phone" name="phone" inputMode="tel" />
-              <TextField label="Email (optional)" name="email" type="email" />
+              <UsernameField />
+              <TextField label="Temporary password" name="password" type="text" minLength={8} required autoComplete="off" hint="At least 8 characters, not 12345678. They choose their own at first sign-in." />
+              <TextField label="Phone (optional)" name="phone" inputMode="tel" placeholder="0300 1234567" hint="03XX XXXXXXX or +92…" />
+              <TextField label="Email (optional)" name="email" type="email" hint="Leave empty if they have none" />
               <SelectField label="Role" name="role" defaultValue="agent" options={roleOptions} />
               {admin ? <SelectField label="Department" name="departmentId" placeholder="—" options={departments.map((d) => ({ value: d.id, label: d.name }))} /> : null}
             </div>
@@ -65,6 +62,12 @@ export default async function SettingsPage() {
           </ActionForm>
         </div>
       </SectionCard>
+
+      <section id="google-sheets" className="scroll-mt-20">
+        <SectionCard title="Google Sheets" description={admin ? 'Every connected Sheet, by department. New rows are synced every minute.' : 'Connect your department\'s leads Sheet. New rows are synced every minute and go to your team.'}>
+          <SheetSources sources={sheets} statusOf={statusOf} isAdmin={admin} defaultDepartment={user.departmentCode} />
+        </SectionCard>
+      </section>
 
       {admin ? (
         <>
@@ -100,75 +103,6 @@ export default async function SettingsPage() {
                 Save colours
               </Button>
             </ActionForm>
-          </SectionCard>
-
-          <SectionCard title="Google Sheet" description='Share the Sheet as "Anyone with the link → Viewer" and keep the link private (it shows customer phones). The CRM reads new rows every minute.'>
-            <div className="grid gap-6 lg:grid-cols-2">
-              <ActionForm action={saveSheetConfigAction}>
-                <TextField label="Sheet link" name="spreadsheet" defaultValue={sheet.spreadsheetId ? `https://docs.google.com/spreadsheets/d/${sheet.spreadsheetId}` : ''} required />
-                <TextField label="Tabs to read (Tab:DEPARTMENT, comma separated)" name="tabs" defaultValue={sheet.tabs.map((t) => (t.department ? `${t.name}:${t.department}` : t.name)).join(', ')} hint="e.g. Leads:INSTALLATION — leave the department off to route by campaign keywords" />
-                <TextAreaField label='Column overrides (JSON), e.g. {"Client Name": "name", "Junk": "ignore"}' name="headerOverrides" rows={3} defaultValue={JSON.stringify(sheet.headerOverrides)} />
-                <Button type="submit" size="touch">
-                  Save Sheet settings
-                </Button>
-              </ActionForm>
-              <div className="space-y-3">
-                <ActionForm action={pullSheetAction}>
-                  <SelectField
-                    label="Pull now"
-                    name="mode"
-                    defaultValue="live"
-                    options={[
-                      { value: 'live', label: 'New rows only (normal)' },
-                      { value: 'history', label: 'First time: import ALL rows as history (match Call Agent names, no alerts)' },
-                      { value: 'skip', label: 'First time: skip existing rows — start from now' },
-                    ]}
-                  />
-                  <Button type="submit" variant="secondary" size="touch" className="w-full">
-                    Run
-                  </Button>
-                </ActionForm>
-                <p className="text-xs text-muted-foreground">
-                  Rows handled:{' '}
-                  {rowStats.length
-                    ? rowStats.map((r) => `${r._id} ${r.n}`).join(' · ')
-                    : 'none yet — choose a "First time" option once'}
-                </p>
-                {failedRows.length ? (
-                  <div className="rounded-lg bg-tone-danger-soft p-3 text-xs text-tone-danger-soft-foreground">
-                    <p className="font-medium">Rows that could not be imported (tried 3 times):</p>
-                    <ul className="mt-1 list-disc ps-4">
-                      {failedRows.map((r) => (
-                        <li key={String(r._id)}>
-                          Row {r.sheetRow}: {r.error}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-            {typeof preview === 'string' ? <p className="mt-3 text-sm text-destructive">{preview}</p> : null}
-            {Array.isArray(preview)
-              ? preview.map((p) => (
-                  <div key={p.tab} className="mt-4 space-y-2 text-sm">
-                    <p className="font-medium">
-                      Tab “{p.tab}” — {p.rows} rows
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {Object.entries(p.detection.mapping).map(([h, f]) => (
-                        <StatusBadge key={h} label={`${h} → ${en.sheetField[f]}`} tone="success" size="sm" />
-                      ))}
-                      {p.detection.dynamic.map((h) => (
-                        <StatusBadge key={h} label={`${h} → kept as extra`} tone="neutral" size="sm" />
-                      ))}
-                      {p.detection.missingRequired.map((f) => (
-                        <StatusBadge key={f} label={`Missing: ${en.sheetField[f]}`} tone="danger" size="sm" />
-                      ))}
-                    </div>
-                  </div>
-                ))
-              : null}
           </SectionCard>
 
           <SectionCard title="Working hours (Pakistan time)" description="Night and holiday leads wait for the morning. Agents are checked out automatically 30 minutes after closing.">

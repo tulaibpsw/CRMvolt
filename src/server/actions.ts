@@ -1,16 +1,21 @@
 'use server'
 
+import { randomBytes } from 'node:crypto'
 import { redirect } from 'next/navigation'
 import { refresh, revalidatePath } from 'next/cache'
 import { headers } from 'next/headers'
 import { z } from 'zod'
 import { ATTEMPT_CHANNELS, DEPARTMENTS, LOST_REASONS, REVIEW_STATUSES, ROLES, STAGES, VISIT_STATUSES, type AttemptChannel, type Role } from '@/domain/constants'
 import { attemptOutcomeInput, leadQuickAddInput, siteBasicsInput, teamSettingsInput } from '@/domain/schemas'
-import { spreadsheetIdFrom } from '@/server/services/sheet'
+import { getSheetSources, previewSheet, pullSheet, saveSheetSources, spreadsheetIdFrom, type PullResult } from '@/server/services/sheet'
+import type { SheetSource } from '@/domain/sheet-columns'
 import { getServerEnv } from '@/lib/env'
 import { normalizePhone } from '@/lib/phone'
+import { normalizeUsername, usernameProblem } from '@/lib/username'
 import { connectDb } from '@/server/db/connection'
-import { AuditLog, Lead, Notification, Team, User, Visit } from '@/server/db/models'
+import { AuditLog, Contact, Lead, Notification, Team, User, Visit } from '@/server/db/models'
+import { formatPktDateTime } from '@/lib/dates-pkt'
+import { en } from '@/i18n/en'
 import { hashPassword, passwordProblem, safeEqual, verifyPassword, verifyPasswordOrDummy } from '@/server/auth/password'
 import { endSession, requireRole, requireUser, revokeSessions, startSession, type SessionUser } from '@/server/auth/session'
 import { isObjectId, loadLeadFor, loadManagedUser, safeNext } from '@/server/auth/guards'
@@ -21,8 +26,7 @@ import { errorState, logActivity, notify, oid, UserError, type ActionState } fro
 import { ingestLead } from '@/server/services/ingest'
 import { changeStage, reopenLead, transferLead } from '@/server/services/leads'
 import { clear, hit, isBlocked } from '@/server/services/rate-limit'
-import { pullSheet } from '@/server/services/sheet'
-import { getSetting, setSetting } from '@/server/services/settings'
+import { setSetting } from '@/server/services/settings'
 import { assignVisit, createVisit, updateVisit } from '@/server/services/visits'
 import { sendWhatsAppText } from '@/server/services/whatsapp'
 import { isHexColor, THEME_PRESETS } from '@/styles/runtime-theme'
@@ -93,7 +97,7 @@ export async function setupAction(_prev: ActionState, fd: FormData): Promise<Act
     await hit(ipKey, 5, 60 * 60_000)
     return { ok: false, message: 'Wrong master key' }
   }
-  const parsed = z.object({ name: z.string().min(2), email: z.email(), username: z.string().regex(/^[a-z0-9._-]{3,30}$/), password: z.string().min(8) }).safeParse(Object.fromEntries(fd))
+  const parsed = z.object({ name: z.string().trim().min(2, 'Enter your name'), email: z.email('Enter a valid email'), username: z.string().transform(normalizeUsername).refine((u) => !usernameProblem(u), 'Username needs at least 3 letters or numbers'), password: z.string().min(8, 'Use at least 8 characters') }).safeParse(Object.fromEntries(fd))
   if (!parsed.success) return errorState(parsed.error)
   const problem = passwordProblem(parsed.data.password, parsed.data.username)
   if (problem) return { ok: false, message: problem, fieldErrors: { password: problem } }
@@ -401,26 +405,27 @@ function creatableRoles(actor: SessionUser): Role[] {
 export async function createUserAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
   const actor = await requireRole('admin', 'manager')
   return attempt(async (): Promise<ActionState> => {
-    const data = z
-      .object({
-        name: z.string().trim().min(2, 'Enter the full name').max(80),
-        username: z.string().regex(/^[a-z0-9._-]{3,30}$/, 'Use 3–30 lowercase letters, numbers, . _ -'),
-        email: z.email().optional(),
-        phone: z.string().optional(),
-        password: z.string().min(8, 'At least 8 characters').max(128),
-        role: z.enum(ROLES),
-        departmentId: z.string().optional(),
-      })
-      .parse({ name: str(fd, 'name'), username: str(fd, 'username')?.toLowerCase(), email: str(fd, 'email')?.toLowerCase(), phone: str(fd, 'phone'), password: String(fd.get('password') ?? ''), role: str(fd, 'role'), departmentId: str(fd, 'departmentId') })
+    // Friendly checks, one clear message each (the form shows the same rules as hints).
+    const name = (str(fd, 'name') ?? '').replace(/\s+/g, ' ')
+    if (name.length < 2) return { ok: false, message: 'Enter the person\'s full name', fieldErrors: { name: 'Required' } }
+    const username = normalizeUsername(str(fd, 'username') ?? '')
+    const badUsername = usernameProblem(username)
+    if (badUsername) return { ok: false, message: badUsername, fieldErrors: { username: badUsername } }
+    const email = str(fd, 'email')?.toLowerCase()
+    if (email && !z.email().safeParse(email).success) return { ok: false, message: 'Email looks wrong — leave it empty if they have none', fieldErrors: { email: 'Invalid' } }
+    const role = z.enum(ROLES).safeParse(str(fd, 'role')).data
+    if (!role) return { ok: false, message: 'Choose a role' }
+    const data = { name: name.slice(0, 80), username, email, phone: str(fd, 'phone'), password: String(fd.get('password') ?? ''), role, departmentId: str(fd, 'departmentId') }
     if (!creatableRoles(actor).includes(data.role)) return { ok: false, message: 'You cannot add this kind of user' }
     const problem = passwordProblem(data.password, data.username)
     if (problem) return { ok: false, message: problem, fieldErrors: { password: problem } }
     const departmentId = actor.role === 'manager' ? actor.departmentId : data.departmentId
     if (data.role !== 'admin' && !departmentId) return { ok: false, message: 'Pick a department', fieldErrors: { departmentId: 'Required' } }
     if (departmentId && !isObjectId(departmentId)) return { ok: false, message: 'Pick a department' }
-    if (data.phone && !normalizePhone(data.phone)) return { ok: false, message: 'Phone number is not valid', fieldErrors: { phone: 'Invalid' } }
+    if (data.phone && !normalizePhone(data.phone)) return { ok: false, message: 'Phone number looks wrong — use 03XX XXXXXXX or +92…', fieldErrors: { phone: 'Invalid' } }
     const team = departmentId ? await Team.findOne({ departmentId: oid(departmentId) }) : null
-    if (await User.exists({ $or: [{ username: data.username }, ...(data.email ? [{ email: data.email }] : [])] })) return { ok: false, message: 'That username or email is already used' }
+    if (await User.exists({ username: data.username })) return { ok: false, message: `Username "${data.username}" is already taken — add a number, e.g. ${data.username}2`, fieldErrors: { username: 'Taken' } }
+    if (data.email && (await User.exists({ email: data.email }))) return { ok: false, message: 'That email is already used by another user', fieldErrors: { email: 'Taken' } }
     const user = await User.create({
       name: data.name,
       username: data.username,
@@ -448,7 +453,7 @@ export async function createUserAction(_prev: ActionState, fd: FormData): Promis
     }
     await AuditLog.create({ entity: 'user', entityId: user._id, action: 'create', after: { name: data.name, role: data.role, departmentId }, actorId: oid(actor.id) })
     refresh()
-    return { ok: true, message: `${data.name} added. Username: ${data.username}. They must set their own password at first sign-in.` }
+    return { ok: true, message: `${data.name} added. They sign in with username "${data.username}" and the temporary password, then choose their own.` }
   })
 }
 
@@ -576,25 +581,40 @@ export async function updateTeamSettingsAction(_prev: ActionState, fd: FormData)
   })
 }
 
-// ── Company settings (admin / super admin) ──
+// ── Google Sheets (managers: their own department · admins: all) ──
 
-export async function saveSheetConfigAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
-  const actor = await requireRole('admin')
-  return attempt(async () => {
-    const config = await getSetting('sheet_config')
-    const tabs = (str(fd, 'tabs') ?? 'Leads')
-      .split(',')
-      .map((t) => t.trim())
-      .filter(Boolean)
-      .slice(0, 10)
-      .map((t) => {
-        const [name, dept] = t.split(':').map((s) => s.trim())
-        const department = DEPARTMENTS.find((d) => d.toLowerCase() === (dept ?? '').toLowerCase())
-        return department ? { name: name.slice(0, 100), department } : { name: name.slice(0, 100) }
-      })
-    let headerOverrides = config.headerOverrides
+/** The sheets this person may see and change. */
+async function sheetsFor(actor: SessionUser): Promise<SheetSource[]> {
+  const all = await getSheetSources()
+  return isAdminRole(actor.role) ? all : all.filter((s) => s.department === actor.departmentCode)
+}
+
+function resultText(r: PullResult): string {
+  const where = `${r.sourceName} · ${r.tab}`
+  if (r.problem) return `${where}: ${r.problem}`
+  if (r.needsStart) return `${where}: first choose "Import ALL rows as history" or "Start from now"`
+  return `${where}: ${r.created} new, ${r.reinquiry} asked again, ${r.skipped} skipped, ${r.invalid} bad phone${r.failed ? `, ${r.failed} failed (${r.errors[0] ?? ''})` : ''}`
+}
+
+/** Add or edit a connected sheet. The sheet is read once to check the link and the phone column before saving. */
+export async function saveSheetSourceAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireRole('admin', 'manager')
+  return attempt(async (): Promise<ActionState> => {
+    const sources = await getSheetSources()
+    const editId = str(fd, 'sourceId')
+    const existing = editId ? sources.find((s) => s.id === editId) : undefined
+    if (editId && !existing) return { ok: false, message: 'Sheet not found' }
+    const department = isAdminRole(actor.role) ? z.enum(DEPARTMENTS).safeParse(str(fd, 'department')).data : actor.departmentCode
+    if (!department) return { ok: false, message: 'Pick a department', fieldErrors: { department: 'Required' } }
+    if (existing && !isAdminRole(actor.role) && existing.department !== actor.departmentCode) return { ok: false, message: 'This sheet belongs to another department' }
+    const spreadsheetId = spreadsheetIdFrom(str(fd, 'spreadsheet') ?? '')
+    if (!/^[a-zA-Z0-9-_]{20,}$/.test(spreadsheetId)) return { ok: false, message: 'Paste the full Google Sheet link (https://docs.google.com/spreadsheets/d/…)', fieldErrors: { spreadsheet: 'Not a Sheet link' } }
+    const tabs = [...new Set((str(fd, 'tabs') ?? 'Leads').split(',').map((t) => t.trim().slice(0, 100)).filter(Boolean))].slice(0, 10)
+    if (!tabs.length) return { ok: false, message: 'Write the tab name (bottom of the Sheet), e.g. Leads', fieldErrors: { tabs: 'Required' } }
+    const name = (str(fd, 'name') ?? existing?.name ?? 'Leads sheet').slice(0, 60)
+    let headerOverrides = existing?.headerOverrides ?? {}
     const rawOverrides = str(fd, 'headerOverrides')
-    if (rawOverrides) {
+    if (rawOverrides !== undefined) {
       try {
         const parsed = JSON.parse(rawOverrides)
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('shape')
@@ -603,36 +623,54 @@ export async function saveSheetConfigAction(_prev: ActionState, fd: FormData): P
         return { ok: false, message: 'Column overrides must be valid JSON, e.g. {"Client Name": "name"}' }
       }
     }
-    const spreadsheetId = spreadsheetIdFrom(str(fd, 'spreadsheet') ?? '')
-    if (spreadsheetId && !/^[a-zA-Z0-9-_]{20,}$/.test(spreadsheetId)) return { ok: false, message: 'That does not look like a Google Sheet link' }
-    await setSetting('sheet_config', { ...config, spreadsheetId, tabs, headerOverrides }, actor.id)
-    await AuditLog.create({ entity: 'setting', entityId: null, action: 'update', after: { key: 'sheet_config', tabs: tabs.map((t) => t.name) }, actorId: oid(actor.id) })
+    const source: SheetSource = { id: existing?.id ?? `s${randomBytes(5).toString('hex')}`, name, department, spreadsheetId, tabs, headerOverrides, createdBy: existing?.createdBy ?? actor.id }
+    // Check it now so the manager sees problems immediately (not tomorrow).
+    const check = await previewSheet(source)
+    const unreadable = check.find((c) => c.error)
+    if (unreadable) return { ok: false, message: `Tab "${unreadable.tab}": ${unreadable.error}` }
+    const noPhone = check.find((c) => c.detection.missingRequired.length)
+    if (noPhone) return { ok: false, message: `Tab "${noPhone.tab}" has no phone column. Name one column like "phone_number" or "whatsapp_number" (see the guide).` }
+    await saveSheetSources(existing ? sources.map((s) => (s.id === existing.id ? source : s)) : [...sources, source], actor.id)
+    await AuditLog.create({ entity: 'setting', entityId: null, action: existing ? 'update' : 'create', after: { key: 'sheet', name, department, tabs }, actorId: oid(actor.id) })
     refresh()
-    return { ok: true, message: 'Saved' }
+    const rows = check.reduce((n, c) => n + c.rows, 0)
+    return { ok: true, message: `Saved "${name}" — ${rows} rows found. ${existing ? '' : 'Now choose "Start from now" or "Import ALL rows as history" once.'}` }
   })
 }
 
+export async function removeSheetSourceAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireRole('admin', 'manager')
+  return attempt(async () => {
+    const mine = await sheetsFor(actor)
+    const target = mine.find((s) => s.id === str(fd, 'sourceId'))
+    if (!target) return { ok: false, message: 'Sheet not found' }
+    if (str(fd, 'confirm')?.toLowerCase() !== 'remove') return { ok: false, message: 'Type "remove" to confirm' }
+    await saveSheetSources((await getSheetSources()).filter((s) => s.id !== target.id), actor.id)
+    await AuditLog.create({ entity: 'setting', entityId: null, action: 'soft_delete', before: { key: 'sheet', name: target.name, department: target.department }, actorId: oid(actor.id) })
+    refresh()
+    return { ok: true, message: `"${target.name}" removed — leads already imported stay in the CRM.` }
+  })
+}
+
+/** Sync one sheet (or all of mine) now. history / skip = "first time" choices, also "use new columns from now". */
 export async function pullSheetAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
   const actor = await requireRole('admin', 'manager')
   return attempt(async () => {
     const mode = (str(fd, 'mode') ?? 'live') as 'live' | 'history' | 'skip'
-    if (mode !== 'live' && !isAdminRole(actor.role)) return { ok: false, message: 'Only an admin can import history or restart the Sheet' }
     if (!['live', 'history', 'skip'].includes(mode)) return { ok: false, message: 'Unknown mode' }
-    const results = await pullSheet(mode)
-    if (results === null) return { ok: false, message: 'A pull is already running — try again in a minute.' }
+    const mine = await sheetsFor(actor)
+    const sourceId = str(fd, 'sourceId')
+    if (sourceId && !mine.some((s) => s.id === sourceId)) return { ok: false, message: 'Sheet not found' }
+    if (!mine.length) return { ok: false, message: 'No Google Sheet connected yet — add one in Settings.' }
+    const results = await pullSheet(mode, sourceId ? { sourceId } : isAdminRole(actor.role) ? {} : { department: actor.departmentCode ?? undefined })
+    if (results === null) return { ok: false, message: 'A sync is already running — try again in a minute.' }
+    if (mode !== 'live') await AuditLog.create({ entity: 'setting', entityId: null, action: 'update', after: { key: 'sheet_pull', mode, sourceId }, actorId: oid(actor.id) })
     refresh()
-    const text = results
-      .map((r) =>
-        r.missingRequired.length
-          ? `${r.tab}: no phone column found`
-          : r.needsStart
-            ? `${r.tab}: first choose "Import ALL rows as history" or "Start from now"`
-            : `${r.tab}: ${r.created} new, ${r.reinquiry} asked again, ${r.skipped} skipped, ${r.invalid} bad phone${r.failed ? `, ${r.failed} failed (${r.errors[0] ?? ''})` : ''}`,
-      )
-      .join(' · ')
-    return { ok: true, message: text || 'No Sheet configured' }
+    return { ok: !results.some((r) => r.problem), message: results.map(resultText).join(' · ') || 'Nothing to sync' }
   })
 }
+
+// ── Company settings (admin / super admin) ──
 
 export async function saveWorkingHoursAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
   const actor = await requireRole('admin')
@@ -676,4 +714,48 @@ export async function markNotificationsReadAction(): Promise<void> {
 export async function guardManager() {
   const user = await requireUser()
   return isManagerOrAdmin(user)
+}
+
+// ── Lead details pop-up ──
+
+export interface LeadDetailsView {
+  ok: boolean
+  message?: string
+  leadNo?: string
+  name?: string
+  /** Fixed facts: when, where from, form answers. */
+  facts?: [string, string][]
+  /** Every other Sheet column, exactly as named in the Sheet. */
+  extra?: [string, string][]
+}
+
+/** Everything the Sheet sent for one lead (opened from the leads list or the lead page). */
+export async function getLeadDetailsAction(leadId: string): Promise<LeadDetailsView> {
+  const user = await requireRole('admin', 'manager', 'agent')
+  try {
+    const lead = await loadLeadFor(user, leadId, 'view')
+    if (user.role === 'agent' && lead.assignment?.state !== 'accepted') return { ok: false, message: 'Accept the lead to see all its details.' }
+    const contact = await Contact.findById(lead.contactId).select('name').lean()
+    const site = (lead.site ?? {}) as { systemSizeRange?: string; installLocation?: string; installTimeline?: string }
+    const src = lead.source ?? {}
+    const facts: [string, string][] = (
+      [
+        ['Received', formatPktDateTime(lead.receivedAt)],
+        ['Came from', src.channel === 'sheet' ? `Google Sheet${src.sheetTab ? ` · tab ${String(src.sheetTab).split('/').pop()}` : ''}${src.sheetRow ? ` · row ${src.sheetRow}` : ''}` : String(src.channel ?? '')],
+        ['Campaign', src.campaignName],
+        ['Ad set', src.adsetName],
+        ['Ad', src.adName],
+        ['Form', src.formName],
+        ['System size (form)', site.systemSizeRange ? en.systemSizeRange[site.systemSizeRange as keyof typeof en.systemSizeRange] : undefined],
+        ['Install location (form)', site.installLocation ? en.installLocation[site.installLocation as keyof typeof en.installLocation] : undefined],
+        ['Install timeline (form)', site.installTimeline ? en.installTimeline[site.installTimeline as keyof typeof en.installTimeline] : undefined],
+      ] as [string, string | null | undefined][]
+    ).filter((f): f is [string, string] => !!f[1])
+    const extra = Object.entries((lead.extra ?? {}) as Record<string, unknown>)
+      .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
+      .map(([k, v]) => [k, String(v)] as [string, string])
+    return { ok: true, leadNo: lead.leadNo, name: contact?.name ?? '', facts, extra }
+  } catch (error) {
+    return { ok: false, message: errorState(error)?.message ?? 'Could not load' }
+  }
 }

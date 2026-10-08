@@ -68,12 +68,12 @@ describe('cron endpoints', () => {
     expect(pull.status).toBe(200)
     expect(await pull.json()).toMatchObject({ ok: true, results: [] }) // no Sheet configured yet
   })
-  it('a Sheet that cannot be read returns a clear 500, not a crash', async () => {
+  it('a Sheet that cannot be read is reported (other sheets keep syncing), not a crash', async () => {
     await setSetting('sheet_config', { spreadsheetId: 'unreadable-sheet-id-000000', tabs: [{ name: 'Leads' }], headerOverrides: {}, cursor: {} })
     vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>login</html>', { status: 200 })))
     const res = await sheetPull.GET(req('/api/cron/sheet-pull', { headers: cron }))
-    expect(res.status).toBe(500)
-    expect((await res.json()).error).toMatch(/Anyone with the link/)
+    expect(res.status).toBe(200)
+    expect((await res.json()).results[0].problem).toMatch(/Anyone with the link/)
     vi.unstubAllGlobals()
     await setSetting('sheet_config', { spreadsheetId: '', tabs: [{ name: 'Leads' }], headerOverrides: {}, cursor: {} })
   })

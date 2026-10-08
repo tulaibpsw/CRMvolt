@@ -119,6 +119,15 @@ describe('1. accounts: super admin → manager → agents (everyone sets their o
     expect((await me()).mustChangePassword).toBe(false)
   })
 
+  it('usernames typed with capitals/spaces are cleaned instead of rejected', async () => {
+    await signIn('bilal', 'Solar#Mgr2026')
+    const res = await run(A.createUserAction(null, fd({ name: 'Fatima Noor', username: ' Fatima Noor ', password: 'Start#2026', role: 'field_agent' })))
+    expect(res.state?.message).toMatch(/username "fatima.noor"/)
+    const dup = await run(A.createUserAction(null, fd({ name: 'Fatima N', username: 'FATIMA.NOOR', password: 'Start#2026', role: 'field_agent' })))
+    expect(dup.state?.message).toMatch(/already taken — add a number, e.g. fatima.noor2/)
+    expect((await run(A.createUserAction(null, fd({ name: 'Xavi Test', username: 'a!', password: 'Start#2026', role: 'agent' })))).state?.message).toMatch(/at least 3/)
+  })
+
   it('manager creates two call agents; they join the round-robin order', async () => {
     await signIn('bilal', 'Solar#Mgr2026')
     for (const [name, username] of [['Talha Khan', 'talha'], ['Waji Ahmed', 'waji']]) {
@@ -168,15 +177,33 @@ describe('2. a lead lands in the Google Sheet and reaches the right agent', () =
     }
   })
 
-  it('admin connects the Sheet and starts "from now" (old rows are not imported)', async () => {
-    await signIn('owner', 'Owner#2026pass')
-    expect((await run(A.saveSheetConfigAction(null, fd({ spreadsheet: 'https://docs.google.com/spreadsheets/d/1TestSheetIdAbcdefghijklmnop/edit', tabs: 'Leads:INSTALLATION' })))).state?.ok).toBe(true)
+  it('the manager connects their own department\'s Sheet and starts "from now" (old rows are not imported)', async () => {
+    await signIn('bilal', 'Solar#Mgr2026')
     sheet([oldRow])
+    const bad = await run(A.saveSheetSourceAction(null, fd({ name: 'FB leads', spreadsheet: 'not a link', tabs: 'Leads' })))
+    expect(bad.state).toMatchObject({ ok: false })
+    const saved = await run(A.saveSheetSourceAction(null, fd({ name: 'FB leads', spreadsheet: 'https://docs.google.com/spreadsheets/d/1TestSheetIdAbcdefghijklmnop/edit', tabs: 'Leads', department: 'TRADING' })))
+    expect(saved.state?.message).toMatch(/Saved "FB leads" — 1 rows found/)
+    const { getSheetSources } = await import('@/server/services/sheet')
+    expect((await getSheetSources())[0]).toMatchObject({ name: 'FB leads', department: 'INSTALLATION' }) // a manager cannot pick another department
     const live = await run(A.pullSheetAction(null, fd({ mode: 'live' })))
     expect(live.state?.message).toMatch(/first choose/)
     const skip = await run(A.pullSheetAction(null, fd({ mode: 'skip' })))
     expect(skip.state?.message).toMatch(/1 skipped/)
     expect(await Lead.countDocuments()).toBe(0)
+  })
+
+  it('another department\'s Sheet is invisible to this manager', async () => {
+    await signIn('owner', 'Owner#2026pass')
+    sheet([['10/6/26', 'Panels', 'Trader', '+923009800099', '']])
+    expect((await run(A.saveSheetSourceAction(null, fd({ name: 'Trading sheet', spreadsheet: 'https://docs.google.com/spreadsheets/d/1TradingSheetIdAbcdefghijkl/edit', tabs: 'Leads', department: 'TRADING' })))).state?.ok).toBe(true)
+    const { getSheetSources } = await import('@/server/services/sheet')
+    const trading = (await getSheetSources()).find((x) => x.department === 'TRADING')!
+    await signIn('bilal', 'Solar#Mgr2026')
+    expect((await run(A.pullSheetAction(null, fd({ mode: 'live', sourceId: trading.id })))).state).toMatchObject({ ok: false, message: 'Sheet not found' })
+    expect((await run(A.removeSheetSourceAction(null, fd({ sourceId: trading.id, confirm: 'remove' })))).state).toMatchObject({ ok: false })
+    await signIn('owner', 'Owner#2026pass')
+    expect((await run(A.removeSheetSourceAction(null, fd({ sourceId: trading.id, confirm: 'remove' })))).state?.ok).toBe(true)
   })
 
   it('a new customer fills the Facebook form → the row appears → the next pull creates the lead', async () => {
@@ -194,6 +221,37 @@ describe('2. a lead lands in the Google Sheet and reaches the right agent', () =
     const waji = await User.findOne({ username: 'waji' }).lean()
     const res = await run(A.assignLeadAction(null, fd({ leadId, agentId: String(waji!._id) })))
     expect(res.state).toMatchObject({ ok: true, message: 'Assigned to Waji Ahmed' })
+  })
+
+  it('a renamed phone column stops the sync and alerts the manager; "use new columns from now" resumes it', async () => {
+    await signIn('bilal', 'Solar#Mgr2026')
+    const renamed = ['', 'campaign name', 'full_name', 'mobile', 'Remark']
+    const rows = [oldRow, ['10/6/26', 'Solar Home Oct', 'Ayesha Malik', '+923009800002', 'wants 10 kW']]
+    const serve = (head: string[], body: string[][]) => vi.stubGlobal('fetch', vi.fn(async () => new Response([head, ...body].map((r) => r.map((c) => `"${c}"`).join(',')).join('\n'), { status: 200 })))
+    serve(renamed, rows)
+    const stopped = await run(A.pullSheetAction(null, fd({ mode: 'live' })))
+    expect(stopped.state).toMatchObject({ ok: false })
+    expect(stopped.state?.message).toMatch(/Columns changed: column "whatsapp_number".*missing or was renamed/)
+    const { Notification } = await import('@/server/db/models')
+    expect(await Notification.exists({ type: 'sheet_problem', userId: (await me())!.id })).toBeTruthy()
+    // the manager decides the new column is right
+    expect((await run(A.pullSheetAction(null, fd({ mode: 'skip' })))).state?.ok).toBe(true)
+    expect((await run(A.pullSheetAction(null, fd({ mode: 'live' })))).state).toMatchObject({ ok: true })
+    // and back to the original layout for the rest of the day
+    serve(header, rows)
+    await run(A.pullSheetAction(null, fd({ mode: 'skip' })))
+    expect(await Lead.countDocuments()).toBe(1) // nothing was imported twice
+  })
+
+  it('"Sheet details" shows the extra columns of a lead (managers; agents after accepting)', async () => {
+    const { Lead: L } = await import('@/server/db/models')
+    await L.updateOne({ _id: leadId }, { extra: { 'Client Remarks': 'call after 5 pm', 'New Allocation': 'Yes' } })
+    await signIn('bilal', 'Solar#Mgr2026')
+    const view = await A.getLeadDetailsAction(leadId)
+    expect(view.ok).toBe(true)
+    expect(view.extra).toEqual(expect.arrayContaining([['Client Remarks', 'call after 5 pm']]))
+    await signIn('waji', 'Agent#Two2026')
+    expect(await A.getLeadDetailsAction(leadId)).toMatchObject({ ok: false, message: 'Accept the lead to see all its details.' })
   })
 
   it('Talha cannot open, call or close Waji\'s lead', async () => {

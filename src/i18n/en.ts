@@ -150,6 +150,7 @@ export const en = {
     visit_assigned: 'Site visit assigned to you',
     lead_closed: 'Lead closed by an agent',
     auto_checked_out: 'You were checked out',
+    sheet_problem: 'Google Sheet needs attention',
   },
   slaState: { ok: 'On time', due_soon: 'Due soon', breached: 'Overdue' },
   whatsappNumberStatus: { connected: 'Connected', pending: 'Pending', disconnected: 'Disconnected' },

@@ -8,6 +8,7 @@ import { PageHeader } from '@/components/common/page-header'
 import { SectionCard } from '@/components/common/section-card'
 import { StatusBadge } from '@/components/common/status-badge'
 import { UserAdminList } from '@/components/crm/user-admin-list'
+import { UsernameField } from '@/components/common/username-field'
 import { DEPARTMENT_META } from '@/domain/ui-maps'
 import { en } from '@/i18n/en'
 import { formatPktDateTime } from '@/lib/dates-pkt'
@@ -98,8 +99,8 @@ export default async function AdminPage() {
               <p className="font-medium">Add a manager or admin</p>
               <TextField label="Full name" name="name" required />
               <div className="grid gap-3 sm:grid-cols-2">
-                <TextField label="Username (for sign in)" name="username" required autoCapitalize="none" autoComplete="off" />
-                <TextField label="Temporary password (8+)" name="password" type="text" minLength={8} required autoComplete="off" />
+                <UsernameField />
+                <TextField label="Temporary password" name="password" type="text" minLength={8} required autoComplete="off" hint="At least 8 characters. They choose their own at first sign-in." />
                 <TextField label="Phone" name="phone" inputMode="tel" />
                 <TextField label="Email (optional)" name="email" type="email" />
                 <SelectField label="Role" name="role" defaultValue="manager" options={[{ value: 'manager', label: en.role.manager }, { value: 'admin', label: en.role.admin }]} />
@@ -114,7 +115,7 @@ export default async function AdminPage() {
 
         <SectionCard title="System health">
           <ul className="divide-y divide-border">
-            <Health ok={h.sheetConfigured && !!h.sheetLastActivity && h.sheetFailedRows === 0} label="Google Sheet import" hint={!h.sheetConfigured ? 'Not set up — Settings → Google Sheet.' : h.sheetFailedRows ? `${h.sheetFailedRows} rows could not be imported — see Settings.` : h.sheetLastActivity ? `Working · last row ${formatPktDateTime(new Date(h.sheetLastActivity))}` : 'Connected — in Settings → Google Sheet run a "First time" option once'} />
+            <Health ok={h.sheetConfigured && !!h.sheetLastActivity && h.sheetFailedRows === 0 && h.sheetProblems === 0} label={`Google Sheets (${h.sheetCount} connected)`} hint={!h.sheetConfigured ? 'Not set up — Settings → Google Sheets.' : h.sheetProblems ? `${h.sheetProblems} tab(s) stopped — see Settings → Google Sheets.` : h.sheetFailedRows ? `${h.sheetFailedRows} rows could not be imported — see Settings.` : h.sheetLastActivity ? `Working · last row ${formatPktDateTime(new Date(h.sheetLastActivity))}` : 'Connected — in Settings → Google Sheet run a "First time" option once'} />
             <Health ok={h.cronSecret && h.cronLate === 0} label="Timers (cron every minute)" hint={!h.cronSecret ? 'CRON_SECRET is missing on the server.' : h.cronLate ? `${h.cronLate} timers are late — check cron-job.org is calling /api/cron/tick.` : 'On time'} />
             <Health ok={h.failedJobs === 0} label="Background jobs" hint={h.failedJobs ? `${h.failedJobs} jobs failed — tell the developer.` : 'No failures'} />
             <Health ok={h.whatsapp} label="WhatsApp API" hint={h.whatsapp ? 'Connected' : 'Not connected yet — see docs/whatsapp-setup.md'} />

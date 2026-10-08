@@ -1,11 +1,13 @@
 # Integrations — rules and gotchas
 
-## Google Sheet → CRM (M3)
-- Phase 1 reads the Sheet as **public CSV** (no Google account, no keys): `docs.google.com/spreadsheets/d/<id>/gviz/tq?tqx=out:csv&headers=1&sheet=<tab>`. The Sheet must be shared "Anyone with the link → Viewer" — anyone with the link can see customer phones, so keep the link private (phase 2: service account).
-- `/api/cron/sheet-pull` every minute (cron-job.org) with a lease lock, plus "Pull now" in Settings. Modes: `live` (new rows → round-robin), `history` (old rows, quiet, pre-assigned by the Sheet's "Call Agent" first name), `skip` (start from now).
-- Headers: blank → "Column A", repeats → "Comment (2)". Detection = admin overrides → exact aliases → "contains" rules (Meta form questions). Everything else → `lead.extra`; unrecognised form answers are kept in `extra` as text.
-- Dates: "10/3/26" = month/day/year (Google); first number > 12 → day/month/year. All Pakistan time.
-- **Rows are tracked by key in `sheetrows`** (Meta lead ID, else hash of tab + phone + date) — no row counter, so deleted/sorted/late-filled rows lose nothing. Each row is ingested on its own (try/catch); a failing row is retried 3 times, then listed in Settings. The first live pull of a tab waits until an admin picks "history" or "start from now".
+## Google Sheets → CRM
+- **Several sheets, one per department or more**: `settings.sheet_config.sources[]` (`SheetSource`: id, name, department, spreadsheetId, tabs, headerOverrides). Managers add/edit/remove/sync only their department's sheets (Settings → Google Sheets); admins all. The old single-sheet fields are read as source id `legacy` (keeps old rows known). Leads of a sheet always go to its department.
+- Read as **public CSV** (no Google keys): `docs.google.com/spreadsheets/d/<id>/gviz/tq?tqx=out:csv&headers=1&sheet=<tab>`. Sheet must be "Anyone with the link → Viewer" — keep the link private.
+- `/api/cron/sheet-pull` every minute + "Sync now" (Settings, Leads page). Modes: `live`, `history` (old rows, quiet, pre-assigned by "Call Agent" name), `skip` ("start / use new columns from now").
+- Rows are tracked by key in `sheetrows` (tab key = `rowTab(source, tab)`); one bad row never blocks the rest.
+- **Column-change guard**: `settings.sheet_status[statusKey]` stores which header held each field at the last good pull. If a KEY field (phone, whatsapp, date, lead id) appears or disappears, that tab stops, the department's managers get a `sheet_problem` alert, and Settings shows the problem until the column is renamed back or someone presses "Use new columns from now". Lost name/city/campaign columns are warnings only.
+- Every unknown column is kept in `lead.extra` and shown in the "Sheet details" pop-up (LeadDetailsDialog).
+- The column guide shown to users lives in `SHEET_COLUMN_GUIDE` (src/domain/sheet-columns.ts).
 
 ## WhatsApp Cloud API (M6)
 - Phase 1: Meta's free test number (≤ 5 verified recipients). Use a System User token, not the 24 h token.

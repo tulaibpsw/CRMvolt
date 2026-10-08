@@ -1,6 +1,6 @@
 import 'server-only'
 import { DEPARTMENTS, type Department, type SettingKey } from '@/domain/constants'
-import type { SheetConfig } from '@/domain/sheet-columns'
+import type { SheetConfig, SheetTabStatus } from '@/domain/sheet-columns'
 import { DEFAULT_THEME, type ThemeColors } from '@/styles/runtime-theme'
 import { pktParts } from '@/lib/dates-pkt'
 import { connectDb } from '@/server/db/connection'
@@ -23,6 +23,8 @@ interface SettingTypes {
   sheet_config: SheetConfig
   routing: RoutingConfig
   theme: ThemeColors
+  /** key = sheet tab key (see sheetTabKey) */
+  sheet_status: Record<string, SheetTabStatus>
 }
 
 const DEFAULTS: SettingTypes = {
@@ -33,6 +35,7 @@ const DEFAULTS: SettingTypes = {
     fallback: 'INSTALLATION',
   },
   theme: DEFAULT_THEME,
+  sheet_status: {},
 }
 
 export async function getSetting<K extends keyof SettingTypes>(key: K): Promise<SettingTypes[K]> {

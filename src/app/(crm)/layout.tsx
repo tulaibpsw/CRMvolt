@@ -3,6 +3,7 @@ import { LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AppShell } from '@/components/common/app-shell'
 import { NotificationBell } from '@/components/crm/notification-bell'
+import { RefreshButton } from '@/components/common/refresh-button'
 import { InstallPrompt } from '@/components/common/pwa'
 import { requireUser } from '@/server/auth/session'
 import { logoutAction } from '@/server/actions'
@@ -17,6 +18,7 @@ export default async function CrmLayout({ children }: LayoutProps<'/'>) {
       userName={user.name}
       actions={
         <>
+          <RefreshButton />
           <NotificationBell />
           <form action={logoutAction}>
             <Button type="submit" variant="ghost" size="icon-touch" aria-label="Sign out">

@@ -198,6 +198,7 @@ export const NOTIFICATION_TYPES = [
   'visit_assigned',
   'lead_closed',
   'auto_checked_out',
+  'sheet_problem',
 ] as const
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]
 
@@ -223,7 +224,7 @@ export type IngestStatus = (typeof INGEST_STATUSES)[number]
 export const AUDIT_ACTIONS = ['create', 'update', 'soft_delete', 'restore', 'export'] as const
 export type AuditAction = (typeof AUDIT_ACTIONS)[number]
 
-export const SETTING_KEYS = ['working_hours', 'holidays', 'sla_defaults', 'sheet_config', 'follow_up_cadence', 'routing', 'theme'] as const
+export const SETTING_KEYS = ['working_hours', 'holidays', 'sla_defaults', 'sheet_config', 'follow_up_cadence', 'routing', 'theme', 'sheet_status'] as const
 export type SettingKey = (typeof SETTING_KEYS)[number]
 
 /** Meta lead-form answers (the client's real form questions). */

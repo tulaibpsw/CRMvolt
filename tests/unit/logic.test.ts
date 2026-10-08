@@ -110,3 +110,28 @@ describe('office hours (PKT)', () => {
     expect(nextOpening(new Date('2026-10-04T06:00:00Z'), hours).toISOString()).toBe('2026-10-05T05:00:00.000Z')
   })
 })
+
+describe('usernames are cleaned, not rejected', () => {
+  it('turns what people type into a valid sign-in name', async () => {
+    const { normalizeUsername, usernameProblem } = await import('@/lib/username')
+    expect(normalizeUsername('Talha Khan')).toBe('talha.khan')
+    expect(normalizeUsername('  WAJI_Ahmed ')).toBe('waji_ahmed')
+    expect(normalizeUsername('Ali@123')).toBe('ali123')
+    expect(normalizeUsername('..Sana..  Iqbal--')).toBe('sana.iqbal')
+    expect(normalizeUsername('Muhammad Abdul Rehman Siddiqui Khan')).toHaveLength(30)
+    expect(usernameProblem(normalizeUsername('a!'))).toMatch(/at least 3/)
+    expect(usernameProblem('talha.khan')).toBeNull()
+  })
+})
+
+describe('Sheet column-change guard', () => {
+  it('stops only when a key column (phone / date / lead id) appears or disappears', async () => {
+    const { keyColumnChange } = await import('@/domain/sheet-columns')
+    const before = { phone: 'phone_number', submittedAt: 'created_time', name: 'full_name' }
+    expect(keyColumnChange(undefined, { phone: 'x' })).toBeNull() // first sync
+    expect(keyColumnChange(before, { phone: 'Phone Number', submittedAt: 'Date', name: 'Name' })).toBeNull() // renamed but still recognised
+    expect(keyColumnChange(before, { phone: 'phone_number', submittedAt: 'created_time' })).toBeNull() // name lost: warning only
+    expect(keyColumnChange(before, { phone: 'phone_number' })).toMatch(/"created_time" \(date\) is missing/)
+    expect(keyColumnChange(before, { phone: 'phone_number', submittedAt: 'created_time', metaLeadId: 'id' })).toMatch(/new column "id"/)
+  })
+})

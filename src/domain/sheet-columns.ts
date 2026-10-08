@@ -199,14 +199,75 @@ export function buildRowKey(input: { tab: string; metaLeadId?: string; phone: st
   return `row:${createHash('sha256').update(raw).digest('hex').slice(0, 32)}`
 }
 
-/** Shape of settings.sheet_config (edited on the admin Sheet screen in M3). */
+/**
+ * One connected Google Sheet. Managers add sheets for their own department; admins for any.
+ * id 'legacy' = the first single-sheet setup (kept so already-imported rows are still recognised).
+ */
+export interface SheetSource {
+  id: string
+  name: string
+  department: Department
+  spreadsheetId: string
+  tabs: string[]
+  headerOverrides: Record<string, HeaderOverride>
+  createdBy?: string | null
+}
+
+/** Shape of settings.sheet_config. The top-level fields are the old single-sheet setup (read once, then moved to sources). */
 export interface SheetConfig {
   spreadsheetId: string
   tabs: { name: string; department?: Department }[]
   headerOverrides: Record<string, HeaderOverride>
-  /** last processed row per tab */
+  /** last processed row per tab (old) */
   cursor: Record<string, number>
+  sources?: SheetSource[]
 }
+
+/** Per sheet tab: the header used for each field at the last good pull, and how that pull went (settings.sheet_status). */
+export interface SheetTabStatus {
+  at: string
+  created: number
+  failed: number
+  rows: number
+  /** Blocking: the pull is stopped for this tab until fixed or "use new columns from now". */
+  problem: string | null
+  /** Not blocking (e.g. the name column is gone). */
+  warnings: string[]
+  fieldHeaders: Partial<Record<SheetLeadField, string>>
+}
+
+/**
+ * Fields that identify a row (rowKey) or reach the customer. If one appears or disappears the pull stops for that tab —
+ * otherwise every old row would look new (duplicates) or new rows would be skipped.
+ */
+export const KEY_SHEET_FIELDS: readonly SheetLeadField[] = ['phone', 'whatsapp', 'submittedAt', 'metaLeadId']
+
+/** Compare the key columns found now with the last good pull. Returns a plain-English problem, or null. */
+export function keyColumnChange(before: Partial<Record<SheetLeadField, string>> | undefined, now: Partial<Record<SheetLeadField, string>>): string | null {
+  if (!before || Object.keys(before).length === 0) return null
+  const lost = KEY_SHEET_FIELDS.filter((f) => before[f] && !now[f])
+  const added = KEY_SHEET_FIELDS.filter((f) => !before[f] && now[f])
+  if (!lost.length && !added.length) return null
+  const parts = [
+    ...lost.map((f) => `column "${before[f]}" (${SHEET_FIELD_HINT[f]}) is missing or was renamed`),
+    ...added.map((f) => `new column "${now[f]}" (${SHEET_FIELD_HINT[f]}) appeared`),
+  ]
+  return `Columns changed: ${parts.join('; ')}. Rename it back, or press "Use new columns from now".`
+}
+
+const SHEET_FIELD_HINT: Record<string, string> = { phone: 'phone', whatsapp: 'WhatsApp number', submittedAt: 'date', metaLeadId: 'lead id' }
+
+/** The columns the CRM reads. Shown under the Sheet link so nobody renames them by accident. */
+export const SHEET_COLUMN_GUIDE: { field: string; required: boolean; examples: string[] }[] = [
+  { field: 'Phone or WhatsApp number', required: true, examples: ['phone_number', 'phone', 'mobile', 'whatsapp_number', 'contact number'] },
+  { field: 'Customer name', required: false, examples: ['full_name', 'name', 'customer name'] },
+  { field: 'Date the lead came', required: false, examples: ['created_time', 'date', 'timestamp (or a date in column A)'] },
+  { field: 'Campaign / form', required: false, examples: ['campaign_name', 'campaign name', 'form_name', 'ad_name'] },
+  { field: 'City / area / address', required: false, examples: ['city', 'area', 'address'] },
+  { field: 'Email', required: false, examples: ['email'] },
+  { field: 'Notes / remarks', required: false, examples: ['remark', 'notes', 'comments'] },
+  { field: 'Meta form questions', required: false, examples: ['what size solar system…', 'where do you want to install…', 'when do you plan to install…'] },
+]
 
 /** Map a Meta form answer to our enum (tolerant of typos like "within_a_monthwithin_7_to_15_days"). */
 export function parseFormAnswer<T extends string>(value: string | undefined, allowed: readonly T[]): T | undefined {

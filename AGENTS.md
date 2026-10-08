@@ -70,6 +70,7 @@ Phase 1 costs $0: Vercel Hobby, Atlas M0 (512 MB), Cloudinary free plan (private
 ## 9. Security rules
 - Every Server Action and route handler checks the session and role first.
 - Verify webhook signatures (Meta `X-Hub-Signature-256`) and the cron secret (constant-time, `src/server/http/cron-auth.ts`).
+- Usernames are cleaned, not rejected (`normalizeUsername` in src/lib/username.ts, same on client and server). Never add HTML `pattern` rules that block typing.
 - Login/setup are rate-limited (`src/server/services/rate-limit.ts`); passwords set by someone else force a change at first sign-in (`mustChangePassword`); `passwordProblem()` refuses weak passwords. Redirect targets go through `safeNext()`.
 - Auth is our own (no auth library): scrypt password hashes, sessions in Mongo (`sessions`, token hash only) behind the httpOnly `volton_session` cookie. First admin via `/setup` + `MASTER_KEY`.
 - The service worker (`public/sw.js`) caches only static files — never pages, API responses or customer data. Bump its `VERSION` when you change it.

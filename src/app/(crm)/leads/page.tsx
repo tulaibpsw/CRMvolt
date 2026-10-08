@@ -7,11 +7,14 @@ import { SearchBox } from '@/components/common/search-box'
 import { DataTable, type Column } from '@/components/common/data-table'
 import { EmptyState } from '@/components/common/states'
 import { LeadCard } from '@/components/crm/lead-card'
+import { LeadDetailsDialog } from '@/components/crm/lead-details-dialog'
 import { AssignmentBadge, DepartmentBadge, SourceBadge, StageBadge } from '@/components/crm/badges'
 import { QuickAddLead } from '@/components/crm/quick-add-lead'
+import { ActionForm } from '@/components/common/action-form'
+import { pullSheetAction } from '@/server/actions'
 import type { LeadSummary } from '@/domain/view-models'
 import { formatPktDateTime } from '@/lib/dates-pkt'
-import { formatPhone } from '@/lib/phone'
+import { formatPhone, maskPhone } from '@/lib/phone'
 import { requireUser } from '@/server/auth/session'
 import { LEAD_VIEWS, PAGE_SIZE, listLeads, type LeadView } from '@/server/services/queries'
 
@@ -49,7 +52,7 @@ export default async function LeadsPage(props: PageProps<'/leads'>) {
         <Link href={`/leads/${l.id}`} className="font-medium underline-offset-4 hover:underline">
           {l.name}
           <span className="block text-xs text-muted-foreground">
-            {formatPhone(l.phone)} · {l.leadNo}
+            {l.maskPhone ? maskPhone(l.phone) : formatPhone(l.phone)} · {l.leadNo}
           </span>
         </Link>
       ),
@@ -61,11 +64,28 @@ export default async function LeadsPage(props: PageProps<'/leads'>) {
     { key: 'attempts', header: 'Attempts', sortable: true, align: 'end', cell: (l) => l.attemptCount },
     { key: 'followup', header: 'Next follow-up', sortable: true, cell: (l) => (l.nextFollowUpAt ? formatPktDateTime(new Date(l.nextFollowUpAt)) : '—') },
     { key: 'received', header: 'Received', sortable: true, cell: (l) => formatPktDateTime(new Date(l.receivedAt)) },
+    { key: 'details', header: 'Details', cell: (l) => <LeadDetailsDialog leadId={l.id} compact /> },
   ]
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   return (
     <>
-      <PageHeader title="Leads" description={`${total} in this view`} actions={<QuickAddLead defaultDepartment={user.departmentCode} />} />
+      <PageHeader
+        title="Leads"
+        description={`${total} in this view`}
+        actions={
+          <div className="flex flex-wrap items-start gap-2">
+            {user.role === 'manager' || user.role === 'admin' || user.role === 'super_admin' ? (
+              <ActionForm action={pullSheetAction} className="space-y-2">
+                <input type="hidden" name="mode" value="live" />
+                <Button type="submit" variant="outline" size="touch">
+                  Sync Google Sheet now
+                </Button>
+              </ActionForm>
+            ) : null}
+            <QuickAddLead defaultDepartment={user.departmentCode} />
+          </div>
+        }
+      />
       <Suspense>
         <SearchBox />
       </Suspense>
@@ -80,7 +100,12 @@ export default async function LeadsPage(props: PageProps<'/leads'>) {
         <>
           <div className="space-y-3 md:hidden">
             {rows.map((l) => (
-              <LeadCard key={l.id} lead={l} href={`/leads/${l.id}`} showAgent={user.role !== 'agent'} />
+              <div key={l.id} className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <LeadCard lead={l} href={`/leads/${l.id}`} showAgent={user.role !== 'agent'} />
+                </div>
+                <LeadDetailsDialog leadId={l.id} compact />
+              </div>
             ))}
           </div>
           <DataTable

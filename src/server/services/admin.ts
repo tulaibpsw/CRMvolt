@@ -5,13 +5,14 @@ import { getServerEnv } from '@/lib/env'
 import { connectDb } from '@/server/db/connection'
 import { Attendance, AuditLog, Department as DepartmentModel, Job, Lead, SheetRow, Team, User } from '@/server/db/models'
 import { getSetting } from '@/server/services/settings'
+import { getSheetSources } from '@/server/services/sheet'
 
 /** Company-wide numbers + system health for the admin / super-admin dashboard. */
 export async function getAdminOverview() {
   await connectDb()
   const now = new Date()
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
-  const [departments, teams, users, present, openByDept, wonByDept, pendingCloses, sheet, sheetLast, sheetFailed, overdueJobs, failedJobs, audit] = await Promise.all([
+  const [departments, teams, users, present, openByDept, wonByDept, pendingCloses, sheets, sheetLast, sheetFailed, overdueJobs, failedJobs, audit, sheetStatus] = await Promise.all([
     DepartmentModel.find().lean(),
     Team.find().lean(),
     User.find({ deletedAt: null }).select('name role departmentId isActive lastLoginAt').lean(),
@@ -22,13 +23,14 @@ export async function getAdminOverview() {
       { $group: { _id: '$departmentId', n: { $sum: 1 }, v: { $sum: { $ifNull: ['$wonValuePkr', 0] } } } },
     ]),
     Lead.countDocuments({ 'closeReview.status': 'pending', deletedAt: null }),
-    getSetting('sheet_config'),
+    getSheetSources(),
     SheetRow.findOne().sort({ updatedAt: -1 }).select('updatedAt').lean(),
     SheetRow.countDocuments({ status: 'failed', tries: { $gte: 3 } }),
     // Timers more than 10 minutes late mean the cron (cron-job.org) is not calling /api/cron/tick.
     Job.countDocuments({ status: 'pending', dueAt: { $lt: new Date(now.getTime() - 10 * 60_000) } }),
     Job.countDocuments({ status: 'failed' }),
     AuditLog.find().sort({ at: -1 }).limit(25).lean(),
+    getSetting('sheet_status'),
   ])
   const presentSet = new Set(present.map((a) => String(a.userId)))
   const name = new Map(users.map((u) => [String(u._id), u.name]))
@@ -60,7 +62,9 @@ export async function getAdminOverview() {
       }
     }),
     health: {
-      sheetConfigured: !!sheet.spreadsheetId,
+      sheetConfigured: sheets.length > 0,
+      sheetCount: sheets.length,
+      sheetProblems: Object.values(sheetStatus).filter((s) => s?.problem).length,
       sheetLastActivity: sheetLast?.updatedAt?.toISOString() ?? null,
       sheetFailedRows: sheetFailed,
       cronLate: overdueJobs,

@@ -44,6 +44,6 @@ export function passwordProblem(password: string, username?: string): string | n
   if (password.length < 8) return 'Use at least 8 characters'
   if (password.length > 128) return 'Too long'
   if (WEAK.includes(password.toLowerCase())) return 'This password is too common — choose another'
-  if (username && password.toLowerCase().includes(username.toLowerCase())) return 'Do not use your username in the password'
+  if (username && username.length >= 4 && password.toLowerCase().includes(username.toLowerCase())) return 'Do not use your username inside the password'
   return null
 }

@@ -15,6 +15,7 @@ import { ChatPanel } from '@/components/crm/chat-panel'
 import { ContactActions } from '@/components/crm/contact-actions'
 import { FollowUpItem } from '@/components/crm/follow-up-item'
 import { LeadHeader } from '@/components/crm/lead-header'
+import { LeadDetailsDialog } from '@/components/crm/lead-details-dialog'
 import { DEPARTMENTS, LOST_REASONS, PIPELINES, PROPERTY_TYPES, ROOF_TYPES, SHADING_LEVELS, type ActivityType, type CallResult, type Stage, type VisitStatus } from '@/domain/constants'
 import { ACTIVITY_TYPE_META, ATTEMPT_CHANNEL_META, CALL_RESULT_META, DEPARTMENT_META, STAGE_META, VISIT_STATUS_META, optionsFor } from '@/domain/ui-maps'
 import { en } from '@/i18n/en'
@@ -57,7 +58,7 @@ export default async function LeadPage(props: PageProps<'/leads/[id]'>) {
   return (
     <>
       <PageHeader title={lead.name} backHref="/leads" />
-      <LeadHeader lead={lead} />
+      <LeadHeader lead={lead} actions={user.role !== 'field_agent' ? <LeadDetailsDialog leadId={lead.id} label={`Sheet details${Object.keys(raw.extra).length && !lead.maskPhone ? ` (${Object.keys(raw.extra).length})` : ''}`} /> : null} />
       {raw.closeReview === 'pending' ? (
         <p role="status" className="rounded-xl bg-tone-warning-soft px-4 py-3 text-sm font-medium text-tone-warning-soft-foreground">
           {lead.status === 'won' ? `Marked WON (${formatPkrCompact(raw.wonValuePkr ?? 0)}) by the agent` : 'Closed by the agent'} — waiting for the manager to check it in Proof review.
@@ -179,18 +180,7 @@ export default async function LeadPage(props: PageProps<'/leads/[id]'>) {
               })}
             </Timeline>
           )}
-          {Object.keys(raw.extra).length ? (
-            <SectionCard title="Other columns from the Google Sheet">
-              <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
-                {Object.entries(raw.extra).map(([k, v]) => (
-                  <div key={k} className="flex gap-2">
-                    <dt className="text-muted-foreground">{k}:</dt>
-                    <dd className="font-medium">{v}</dd>
-                  </div>
-                ))}
-              </dl>
-            </SectionCard>
-          ) : null}
+
         </TabsContent>
 
         <TabsContent value="proof" className="grid gap-3 pt-4 md:grid-cols-2">

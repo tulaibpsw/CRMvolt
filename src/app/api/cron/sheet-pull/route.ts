@@ -7,7 +7,7 @@ export async function GET(request: NextRequest) {
   if (!isCronAuthorized(request.headers.get('authorization'))) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   try {
     const results = await pullSheet('live')
-    return NextResponse.json({ ok: true, results: results?.map((r) => ({ tab: r.tab, created: r.created, failed: r.failed, needsStart: r.needsStart })) ?? 'busy' })
+    return NextResponse.json({ ok: true, results: results?.map((r) => ({ sheet: r.sourceName, tab: r.tab, created: r.created, failed: r.failed, needsStart: r.needsStart, problem: r.problem })) ?? 'busy' })
   } catch (error) {
     console.error('[cron/sheet-pull]', error)
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message.slice(0, 200) : 'pull failed' }, { status: 500 })
