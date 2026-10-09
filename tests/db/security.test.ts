@@ -259,3 +259,46 @@ describe('deleting leads (managers)', () => {
     expect(again.status).toBe('created')
   })
 })
+
+describe('proof storage (managers clear screenshots by date)', () => {
+  it('date ranges are in Pakistan time', async () => {
+    const { proofRangeDates } = await import('@/server/services/storage')
+    const now = new Date('2026-10-09T10:00:00Z') // Fri 15:00 PKT
+    expect(proofRangeDates('this_week', now).from.toISOString()).toBe('2026-10-04T19:00:00.000Z') // Mon 5 Oct 00:00 PKT
+    expect(proofRangeDates('this_month', now).from.toISOString()).toBe('2026-09-30T19:00:00.000Z')
+    expect(proofRangeDates('last_month', now)).toMatchObject({ from: new Date('2026-08-31T19:00:00Z'), to: new Date('2026-09-30T19:00:00Z') })
+    expect(proofRangeDates('custom', now, { from: '2026-10-01', to: '2026-10-01' }).to.toISOString()).toBe('2026-10-01T19:00:00.000Z')
+    expect(() => proofRangeDates('custom', now, { from: '2026-10-05', to: '2026-10-01' })).toThrow(/before the start/)
+  })
+
+  it('managers see and clear only their department; pending-review proofs are kept; a Cloudinary failure changes nothing', async () => {
+    const { clearProofs, proofStorageStats } = await import('@/server/services/storage')
+    const { DocumentFile } = await import('@/server/db/models')
+    const id = await acceptedLeadFor(a1)
+    const mk = async (size: number, flagged: boolean) => {
+      const at = await ContactAttempt.create({ leadId: id, agentId: new mongoose.Types.ObjectId(a1.id), channel: 'phone_call', serverTapAt: new Date(), outcomeAt: new Date(), result: 'no_answer', proofStatus: flagged ? 'flagged' : 'evidenced' })
+      return DocumentFile.create({ ownerType: 'attempt', ownerId: at._id, category: 'attempt_screenshot', fileName: 'x.jpg', mime: 'image/jpeg', size, storageKey: `volton/attempts/${a1.id}/x${size}`, uploadedBy: new mongoose.Types.ObjectId(a1.id) })
+    }
+    await mk(100_000, false)
+    await mk(50_000, true) // still waiting for review
+    expect((await proofStorageStats(mgr)).all).toEqual({ count: 2, bytes: 150_000 })
+    expect((await proofStorageStats(tradingMgr)).all).toEqual({ count: 0, bytes: 0 })
+    expect(await clearProofs(tradingMgr, { range: 'this_week', keepPendingReview: true, dryRun: false })).toMatchObject({ count: 0 })
+    // Cloudinary refuses → nothing is marked cleared
+    vi.stubEnv('CLOUDINARY_CLOUD_NAME', 'demo')
+    vi.stubEnv('CLOUDINARY_API_KEY', 'k')
+    vi.stubEnv('CLOUDINARY_API_SECRET', 's')
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('no', { status: 500 })))
+    await expect(clearProofs(mgr, { range: 'this_week', keepPendingReview: true, dryRun: false })).rejects.toThrow(/nothing was cleared/)
+    expect(await DocumentFile.countDocuments({ deletedAt: null })).toBe(2)
+    // Cloudinary OK → only the reviewed-ready screenshot is cleared
+    const fetchOk = vi.fn(async () => new Response('{"deleted":{}}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchOk)
+    expect(await clearProofs(mgr, { range: 'this_week', keepPendingReview: true, dryRun: true })).toMatchObject({ count: 1, bytes: 100_000 })
+    expect(fetchOk).not.toHaveBeenCalled() // preview deletes nothing
+    expect(await clearProofs(mgr, { range: 'this_week', keepPendingReview: true, dryRun: false })).toMatchObject({ count: 1, bytes: 100_000 })
+    expect(fetchOk).toHaveBeenCalledTimes(1)
+    expect(await DocumentFile.countDocuments({ deletedAt: null })).toBe(1)
+    vi.unstubAllEnvs()
+  })
+})

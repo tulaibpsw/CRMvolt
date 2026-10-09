@@ -49,6 +49,37 @@ export async function getPrivateImage(publicId: string): Promise<{ etag: string;
   return { etag: body.etag, createdAt: new Date(body.created_at), bytes: body.bytes ?? 0, format: body.format ?? 'jpg' }
 }
 
+const authHeader = () => {
+  const { key, secret } = creds()
+  return `Basic ${Buffer.from(`${key}:${secret}`).toString('base64')}`
+}
+
+/** Delete private images (Admin API, max 100 per call). "not found" counts as deleted. Throws if Cloudinary refuses. */
+export async function deletePrivateImages(publicIds: string[]): Promise<void> {
+  const { cloud } = creds()
+  for (let i = 0; i < publicIds.length; i += 100) {
+    const batch = publicIds.slice(i, i + 100)
+    const q = new URLSearchParams()
+    for (const id of batch) q.append('public_ids[]', id)
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${cloud}/resources/image/authenticated?${q}`, { method: 'DELETE', headers: { Authorization: authHeader() }, cache: 'no-store' })
+    if (!res.ok) throw new UserError(`Cloudinary did not delete the files (${res.status}) — nothing was cleared. Try again later.`)
+  }
+}
+
+/** Whole Cloudinary account usage (all departments): storage bytes and plan credits. Null when not available. */
+export async function cloudinaryUsage(): Promise<{ storageBytes: number; plan: string; creditsUsed: number | null; creditsLimit: number | null } | null> {
+  if (!isCloudinaryConfigured()) return null
+  try {
+    const { cloud } = creds()
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${cloud}/usage`, { headers: { Authorization: authHeader() }, cache: 'no-store' })
+    if (!res.ok) return null
+    const u = (await res.json()) as { plan?: string; storage?: { usage?: number }; credits?: { usage?: number; limit?: number } }
+    return { storageBytes: u.storage?.usage ?? 0, plan: u.plan ?? 'Free', creditsUsed: u.credits?.usage ?? null, creditsLimit: u.credits?.limit ?? null }
+  } catch {
+    return null
+  }
+}
+
 /** Expiring download link for a private file (default 10 minutes). */
 export function privateDownloadUrl(publicId: string, format: string, expiresInSec = 600): string {
   const { cloud, key, secret } = creds()

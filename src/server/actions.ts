@@ -14,7 +14,8 @@ import { normalizePhone } from '@/lib/phone'
 import { normalizeUsername, usernameProblem } from '@/lib/username'
 import { connectDb } from '@/server/db/connection'
 import { AuditLog, Contact, Lead, Notification, Team, User, Visit } from '@/server/db/models'
-import { formatPktDateTime } from '@/lib/dates-pkt'
+import { formatPktDate, formatPktDateTime } from '@/lib/dates-pkt'
+import { clearProofs, formatBytes, PROOF_RANGES, type ProofRange } from '@/server/services/storage'
 import { en } from '@/i18n/en'
 import { hashPassword, passwordProblem, safeEqual, verifyPassword, verifyPasswordOrDummy } from '@/server/auth/password'
 import { endSession, requireRole, requireUser, revokeSessions, startSession, type SessionUser } from '@/server/auth/session'
@@ -832,5 +833,22 @@ export async function deleteLeadsAction(_prev: ActionState, fd: FormData): Promi
     if (fd.get('afterDelete') === 'leads' && deleted.length) redirect('/leads')
     refresh()
     return { ok: deleted.length > 0, message: deleted.length ? `${deleted.length} lead(s) deleted${skipped ? ` · ${skipped} skipped (not in your department)` : ''}.` : 'Nothing was deleted.' }
+  })
+}
+
+// ── Proof storage (screenshots) — managers: own department · admins: all ──
+
+export async function clearProofsAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
+  const user = await requireRole('admin', 'manager')
+  return attempt(async () => {
+    const range = String(fd.get('range') ?? '') as ProofRange
+    if (!PROOF_RANGES.includes(range)) return { ok: false, message: 'Choose which proofs to clear' }
+    const dryRun = fd.get('mode') !== 'clear'
+    if (!dryRun && str(fd, 'confirm')?.toUpperCase() !== 'CLEAR') return { ok: false, message: 'Type CLEAR in the box to confirm, then press "Clear now".', fieldErrors: { confirm: 'Type CLEAR' } }
+    const r = await clearProofs(user, { range, from: str(fd, 'from'), to: str(fd, 'to'), keepPendingReview: fd.get('keepPending') === 'on', dryRun })
+    const span = `${formatPktDate(r.from)} – ${formatPktDate(new Date(r.to.getTime() - 1))}`
+    if (dryRun) return { ok: true, message: r.count ? `${r.count} screenshot(s), ${formatBytes(r.bytes)} (${span}) would be deleted. Calls, results and notes stay. Type CLEAR and press "Clear now" to delete them.` : `Nothing to clear for ${span}.` }
+    refresh()
+    return { ok: true, message: `Cleared ${r.count} screenshot(s) — ${formatBytes(r.bytes)} freed (${span}).` }
   })
 }

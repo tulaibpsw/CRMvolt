@@ -5,13 +5,25 @@ import type { AttemptView, FollowUpView, KpiItem, LeadDetail, LeadSummary, Messa
 import { pktDateKey } from '@/lib/dates-pkt'
 import { formatPkrCompact } from '@/lib/money'
 import { connectDb } from '@/server/db/connection'
-import { Activity, Attendance, Contact, ContactAttempt, Department as DepartmentModel, FollowUp, Lead, Message, Notification, Team, User, Visit } from '@/server/db/models'
+import { Activity, Attendance, Contact, ContactAttempt, Department as DepartmentModel, DocumentFile, FollowUp, Lead, Message, Notification, Team, User, Visit } from '@/server/db/models'
 import type { SessionUser } from '@/server/auth/session'
 import { isAdminRole, leadScope, visitScope } from '@/server/auth/scope'
 import { oid } from '@/server/services/common'
 import { queueReport } from '@/server/services/assignment'
 
 const iso = (d?: Date | null) => (d ? new Date(d).toISOString() : undefined)
+
+/** Screenshot ids of these attempts that still exist (not cleared from proof storage). */
+async function liveDocIds(attempts: { proof?: { docIds?: unknown[] } | null }[]): Promise<Set<string>> {
+  const ids = attempts.flatMap((a) => a.proof?.docIds ?? []).map(String)
+  if (!ids.length) return new Set()
+  return new Set((await DocumentFile.find({ _id: { $in: ids }, deletedAt: null }).select('_id').lean()).map((d) => String(d._id)))
+}
+const screenshotOf = (a: { proof?: { docIds?: unknown[] } | null }, live: Set<string>) => {
+  const id = a.proof?.docIds?.[0] ? String(a.proof.docIds[0]) : null
+  if (!id) return {}
+  return live.has(id) ? { screenshotUrl: `/api/documents/${id}` } : { screenshotCleared: true }
+}
 
 interface LeadLike {
   _id: unknown
@@ -145,6 +157,7 @@ export async function getLeadDetail(id: string, user: SessionUser) {
     Lead.find({ $and: [{ contactId: lead.contactId, _id: { $ne: lead._id } }, leadScope(user)] }).select('leadNo departmentId status').lean(),
   ])
   const people = new Map((await User.find({ _id: { $in: [...attempts.map((a) => a.agentId), ...activities.map((a) => a.actorId).filter(Boolean), ...messages.map((m) => m.sentByUserId).filter(Boolean)] } }).select('name').lean()).map((u) => [String(u._id), u.name]))
+  const liveDocs = await liveDocIds(attempts)
   const summary = toSummary(lead, maps, user)
   const detail: LeadDetail = {
     ...summary,
@@ -168,7 +181,7 @@ export async function getLeadDetail(id: string, user: SessionUser) {
     result: (a.result ?? undefined) as AttemptView['result'],
     response: (a.response ?? undefined) as AttemptView['response'],
     remarks: a.remarks ?? undefined,
-    screenshotUrl: a.proof?.docIds?.length ? `/api/documents/${a.proof.docIds[0]}` : undefined,
+    ...screenshotOf(a, liveDocs),
     proofStatus: a.proofStatus as AttemptView['proofStatus'],
     flags: (a.flags ?? []) as AttemptView['flags'],
     cancelled: !!a.cancelled,
@@ -312,6 +325,7 @@ export async function getReviewQueue(user: SessionUser) {
     ContactAttempt.find({ ...base, proofStatus: 'evidenced', flags: { $nin: ['lead_closed', 'spot_check'] } }).sort({ serverTapAt: -1 }).limit(30).lean(),
   ])
   const attempts = [...urgent, ...spot, ...evidenced]
+  const liveDocs = await liveDocIds(attempts)
   const people = new Map((await User.find({ _id: { $in: attempts.map((a) => a.agentId) } }).select('name').lean()).map((u) => [String(u._id), u.name]))
   const leads = new Map((await Lead.find({ _id: { $in: attempts.map((a) => a.leadId) } }).select('leadNo').lean()).map((l) => [String(l._id), l.leadNo]))
   return attempts.map((a) => ({
@@ -329,7 +343,7 @@ export async function getReviewQueue(user: SessionUser) {
       result: a.result ?? undefined,
       response: a.response ?? undefined,
       remarks: a.remarks ?? undefined,
-      screenshotUrl: a.proof?.docIds?.length ? `/api/documents/${a.proof.docIds[0]}` : undefined,
+      ...screenshotOf(a, liveDocs),
       proofStatus: a.proofStatus,
       flags: a.flags ?? [],
       reviewStatus: a.review?.status ?? 'pending',

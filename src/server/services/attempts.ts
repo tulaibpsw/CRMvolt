@@ -111,6 +111,7 @@ async function applyOutcome(attempt: InstanceType<typeof ContactAttempt>, input:
   // ── Screenshot: must be a real private upload in this agent's folder, made after the tap, never used before. ──
   let screenshotDocId: string | null = null
   let etag: string | null = null
+  let cloudBytes: number | null = null
   if (input.screenshot) {
     const shot = input.screenshot
     if (!shot.publicId.startsWith(`volton/attempts/${user.id}/`)) throw new UserError('That screenshot was not uploaded from your account')
@@ -118,10 +119,11 @@ async function applyOutcome(attempt: InstanceType<typeof ContactAttempt>, input:
       const meta = await getPrivateImage(shot.publicId)
       if (!meta) throw new UserError('Screenshot not found — please upload it again')
       etag = meta.etag
+      cloudBytes = meta.bytes || null
       if (meta.createdAt.getTime() < tapAt - CLOCK_SLACK_MS) flags.push('screenshot_time_mismatch')
       if (await ContactAttempt.exists({ 'proof.phash': etag, _id: { $ne: attempt._id } })) flags.push('screenshot_reused')
     }
-    const doc = await DocumentFile.create({ ownerType: 'attempt', ownerId: attempt._id, category: 'attempt_screenshot', fileName: shot.name.slice(0, 120), mime: /^image\//.test(shot.mime) ? shot.mime : 'image/jpeg', size: Math.max(0, shot.size), storageKey: shot.publicId, uploadedBy: oid(user.id) })
+    const doc = await DocumentFile.create({ ownerType: 'attempt', ownerId: attempt._id, category: 'attempt_screenshot', fileName: shot.name.slice(0, 120), mime: /^image\//.test(shot.mime) ? shot.mime : 'image/jpeg', size: Math.max(0, cloudBytes ?? shot.size), storageKey: shot.publicId, uploadedBy: oid(user.id) })
     screenshotDocId = String(doc._id)
   }
 

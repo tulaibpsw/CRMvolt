@@ -62,6 +62,8 @@ export function AttemptCard({ attempt }: { attempt: AttemptView }) {
             <ImageIcon className="size-4" aria-hidden />
             {en.attempt.screenshot}
           </a>
+        ) : attempt.screenshotCleared ? (
+          <span className="text-muted-foreground">Screenshot cleared (storage)</span>
         ) : (
           <span className="text-muted-foreground">{en.attempt.noScreenshot}</span>
         )}

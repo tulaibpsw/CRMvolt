@@ -51,3 +51,17 @@
   - The Sheet won't import that row again.
   - The same customer can still come back later as a new lead.
 - Test added (security.test.ts).
+
+## Later — proof storage (Settings)
+- **Settings → Proof storage** (managers: their department · admins: all):
+  - space used by proof screenshots: all, this week, this month, older than 3 months
+  - space used per employee
+  - the whole Cloudinary account usage (free plan: 25 GB)
+- **Clear screenshots:** this week / this month / last month / older than 3 months / a date range (Pakistan time).
+  - Step 1, "Check what will be deleted": shows the count and MB, and deletes nothing.
+  - Step 2: type CLEAR → "Clear now".
+  - "Keep screenshots still waiting for my review" is on by default.
+- **Only screenshot files are deleted.** Employees, leads, call results and notes stay. A cleared call shows "Screenshot cleared (storage)".
+- Files are deleted from Cloudinary first and only then marked cleared; if Cloudinary refuses, nothing changes. Each clear is written in the admin activity log.
+- Screenshot sizes now use the real size reported by Cloudinary.
+- Tests: Pakistan-time ranges; manager scope; pending-review files kept; a Cloudinary failure changes nothing; the preview deletes nothing.

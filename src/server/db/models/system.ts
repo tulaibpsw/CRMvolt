@@ -135,10 +135,13 @@ const documentSchema = new Schema(
     storageKey: { type: String, required: true },
     uploadedBy: { type: ObjectId, ref: 'User', required: true },
     deletedAt: { type: Date, default: null },
+    /** Set when a manager cleared proof storage (the file is gone from Cloudinary; the call record stays). */
+    clearedBy: { type: ObjectId, ref: 'User', default: null },
   },
   { timestamps: true },
 )
 documentSchema.index({ ownerType: 1, ownerId: 1 })
+documentSchema.index({ ownerType: 1, deletedAt: 1, createdAt: -1 })
 
 const whatsappNumberSchema = new Schema(
   {

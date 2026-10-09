@@ -74,6 +74,8 @@ export interface AttemptView {
   response?: CustomerResponse
   remarks?: string
   screenshotUrl?: string
+  /** The screenshot existed but a manager cleared proof storage. */
+  screenshotCleared?: boolean
   proofStatus: ProofStatus
   flags: ProofFlag[]
   reviewStatus: ReviewStatus

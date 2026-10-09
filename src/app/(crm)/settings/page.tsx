@@ -4,6 +4,9 @@ import { SelectField, TextField } from '@/components/common/fields'
 import { UsernameField } from '@/components/common/username-field'
 import { SheetSources } from '@/components/crm/sheet-sources'
 import { AlertPrefsForm } from '@/components/crm/alert-prefs-form'
+import { ProofStorage } from '@/components/crm/proof-storage'
+import { proofStorageStats } from '@/server/services/storage'
+import { cloudinaryUsage } from '@/server/services/cloudinary'
 import { User } from '@/server/db/models'
 import { prefsOf } from '@/server/services/watch'
 import { PageHeader } from '@/components/common/page-header'
@@ -36,7 +39,7 @@ export default async function SettingsPage() {
   const admin = isAdminRole(user.role)
   await connectDb()
   const [users, departments, allSheets, sheetStatus, hours, theme] = await Promise.all([listUsers(user), listDepartments(), getSheetSources(), getSetting('sheet_status'), getSetting('working_hours'), getSetting('theme')])
-  const me = await User.findById(user.id).select('role alertPrefs').lean()
+  const [me, proofStats, cloudAccount] = await Promise.all([User.findById(user.id).select('role alertPrefs').lean(), proofStorageStats(user), cloudinaryUsage()])
   const myAlerts = prefsOf(me ?? { role: user.role })
   const employees = users.filter((u) => (u.role === 'agent' || u.role === 'field_agent') && u.isActive).map((u) => ({ id: u.id, name: u.name, role: u.role }))
   // Managers see and manage only their department's sheets.
@@ -72,6 +75,12 @@ export default async function SettingsPage() {
       <section id="my-alerts" className="scroll-mt-20">
         <SectionCard title="My alerts" description="Choose what your employees do that you want to hear about — for everyone, or only some people.">
           <AlertPrefsForm prefs={myAlerts} employees={employees} />
+        </SectionCard>
+      </section>
+
+      <section id="proof-storage" className="scroll-mt-20">
+        <SectionCard title="Proof storage" description="Screenshots your agents attach to calls and chats. See how much space they use and clear old ones.">
+          <ProofStorage stats={proofStats} account={cloudAccount} scopeLabel={admin ? 'All departments' : 'Your department'} />
         </SectionCard>
       </section>
 
