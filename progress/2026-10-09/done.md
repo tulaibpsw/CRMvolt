@@ -36,3 +36,18 @@
 ## Tests
 - 265 tests pass (10 new). Lint, types and the build are clean.
 - Checked in the browser on a local test database. The live database was only read (counts only) to find the auto-assign cause.
+
+## Later — delete leads (managers)
+- **Leads page:**
+  - Managers and admins get a tick box on every lead and "Select all on this page".
+  - Then write a reason (required) → **Delete N** → **"Yes, delete N leads"**.
+- **Lead page → Manage:** "Delete this lead…" (reason + confirm tick).
+- Managers can delete only their own department's leads; admins can delete any lead. Agents can't delete.
+- **What deleting does:**
+  - The lead is hidden everywhere (lists, numbers, the agent's screens).
+  - Timers, follow-ups and linked site visits stop.
+  - The agent is told, and the delete is written in the admin activity log with the reason.
+  - The record and its history are kept (soft delete), so a mistaken delete can be undone.
+  - The Sheet won't import that row again.
+  - The same customer can still come back later as a new lead.
+- Test added (security.test.ts).

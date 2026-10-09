@@ -24,7 +24,7 @@ import { acceptLead, assignQueuedNow, autoAssign, checkIn, checkOut, drainQueue,
 import { cancelAttempt, logOutcome, reviewAttempt, tapAttempt } from '@/server/services/attempts'
 import { errorState, logActivity, notify, oid, UserError, type ActionState } from '@/server/services/common'
 import { ingestLead } from '@/server/services/ingest'
-import { changeStage, reopenLead, transferLead } from '@/server/services/leads'
+import { changeStage, deleteLeads, reopenLead, transferLead } from '@/server/services/leads'
 import { clear, hit, isBlocked } from '@/server/services/rate-limit'
 import { setSetting } from '@/server/services/settings'
 import { assignVisit, createVisit, updateVisit } from '@/server/services/visits'
@@ -819,5 +819,18 @@ export async function saveAlertPrefsAction(_prev: ActionState, fd: FormData): Pr
     await User.updateOne({ _id: oid(actor.id) }, { alertPrefs: { events, scope, agentIds: allowed.map((a) => a._id) } })
     refresh()
     return { ok: true, message: events.length ? `Saved — you will get ${events.length} kind(s) of alerts.` : 'Saved — employee alerts are off.' }
+  })
+}
+
+// ── Delete leads (managers: own department · admins: all) ──
+
+export async function deleteLeadsAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
+  const user = await requireRole('admin', 'manager')
+  return attempt(async () => {
+    const ids = fd.getAll('leadIds').map(String).filter(isObjectId)
+    const { deleted, skipped } = await deleteLeads(user, ids, str(fd, 'reason') ?? '')
+    if (fd.get('afterDelete') === 'leads' && deleted.length) redirect('/leads')
+    refresh()
+    return { ok: deleted.length > 0, message: deleted.length ? `${deleted.length} lead(s) deleted${skipped ? ` · ${skipped} skipped (not in your department)` : ''}.` : 'Nothing was deleted.' }
   })
 }

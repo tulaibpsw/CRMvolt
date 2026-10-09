@@ -55,6 +55,7 @@ avatar · badge · button · card · checkbox · dialog · dropdown-menu · inpu
 | LeadDetailsDialog (client) | lead-details-dialog.tsx | `leadId, label?, compact?` — "Sheet details" pop-up: source, form answers and every extra Sheet column (loads on open) |
 | SheetSources / SheetColumnGuide | sheet-sources.tsx | `sources, statusOf, isAdmin, defaultDepartment` — Settings → Google Sheets cards + the column rules |
 | NextStepCard / LeadJourney | lead-journey.tsx | `next` / `steps` from `leadJourney()` (src/domain/lead-journey.ts) — "what to do now" + Accept → Try 1–3 → Close → Manager check |
+| LeadBulkActions / LeadSelectBox (client) | lead-bulk-actions.tsx | — / `leadId, label` — managers tick leads → reason → confirm → soft delete (`deleteLeadsAction`) |
 | QueuePanel | queue-panel.tsx | `teams` from `getQueuePanels()` — why leads wait + "Assign waiting leads now" |
 | AlertPrefsForm | alert-prefs-form.tsx | `prefs, employees` — Settings → My alerts |
 | UserAdminList | user-admin-list.tsx | `users, viewer` — users with the actions the viewer may use (deactivate, temp password, remove) |

@@ -1,10 +1,10 @@
 import 'server-only'
 import { DEPARTMENTS, type Department, type LostReason, type Stage } from '@/domain/constants'
-import { Department as DepartmentModel, Team } from '@/server/db/models'
+import { AuditLog, Department as DepartmentModel, FollowUp, LeadAssignment, Team, Visit } from '@/server/db/models'
 import type { SessionUser } from '@/server/auth/session'
 import { loadLeadFor } from '@/server/auth/guards'
 import { drainQueue, resetAssignment, startAssignment } from '@/server/services/assignment'
-import { isDuplicateKey, logActivity, oid, UserError } from '@/server/services/common'
+import { cancelJobs, isDuplicateKey, logActivity, notify, oid, UserError } from '@/server/services/common'
 
 const STAGE_ORDER: Stage[] = ['new', 'contacted', 'interested', 'requirement_collected', 'site_survey', 'quotation_pending', 'quotation_sent', 'negotiation', 'won', 'lost']
 /** Stages an agent may set by hand (forward only). Won / lost come from the call result and need a manager's OK. */
@@ -64,4 +64,41 @@ export async function transferLead(user: SessionUser, leadId: string, code: Depa
   await logActivity(lead._id, 'status_changed', user.id, { transferredTo: code, reason })
   await resetAssignment(lead._id, user.id, `moved to ${code}`)
   await startAssignment(lead._id)
+}
+
+/**
+ * Manager/admin removes leads (spam, test, duplicate…). Soft delete: hidden everywhere, history kept, the Sheet
+ * row stays "known" so it is not imported again. Timers, follow-ups and visits stop; the agent is told.
+ */
+export async function deleteLeads(user: SessionUser, leadIds: string[], reason: string): Promise<{ deleted: string[]; skipped: number }> {
+  if (user.role !== 'admin' && user.role !== 'super_admin' && user.role !== 'manager') throw new UserError('Only a manager can delete leads')
+  if (reason.trim().length < 3) throw new UserError('Write why the leads are deleted (e.g. "spam", "test lead", "duplicate")')
+  const unique = [...new Set(leadIds)].slice(0, 500)
+  if (!unique.length) throw new UserError('Select at least one lead')
+  const now = new Date()
+  const deleted: string[] = []
+  let skipped = 0
+  for (const id of unique) {
+    const lead = await loadLeadFor(user, id, 'manage').catch(() => null)
+    if (!lead) {
+      skipped++
+      continue
+    }
+    const agentId = lead.assignment?.agentId ? String(lead.assignment.agentId) : null
+    const wasOpen = lead.status === 'open'
+    // Closing it as junk frees the "one open lead per customer" rule, so the customer can come back as a new lead.
+    lead.set({ deletedAt: now, status: wasOpen ? 'junk' : lead.status, closedAt: lead.closedAt ?? now, nextFollowUpAt: null, updatedBy: oid(user.id) })
+    await lead.save()
+    await LeadAssignment.updateMany({ leadId: lead._id, endedAt: null }, { endedAt: now, reason: 'reassigned' })
+    await FollowUp.updateMany({ leadId: lead._id, status: 'pending' }, { status: 'cancelled' })
+    await cancelJobs({ leadId: lead._id })
+    await Visit.updateMany({ leadId: lead._id, status: { $in: ['assigned', 'rescheduled', 'unassigned'] } }, { status: 'cancelled', feedback: `Lead deleted: ${reason.slice(0, 100)}` })
+    await logActivity(lead._id, 'status_changed', user.id, { deleted: true, reason: reason.slice(0, 200) })
+    if (agentId && wasOpen && agentId !== user.id) {
+      await notify({ userIds: [agentId], type: 'lead_reassigned', title: `${lead.leadNo} was removed by ${user.name}`, body: reason.slice(0, 120), link: '/leads', dedupeKey: `deleted:${lead._id}` })
+    }
+    deleted.push(lead.leadNo)
+  }
+  if (deleted.length) await AuditLog.create({ entity: 'lead', entityId: null, action: 'soft_delete', after: { count: deleted.length, leadNos: deleted.slice(0, 50), reason: reason.slice(0, 200) }, actorId: oid(user.id) })
+  return { deleted, skipped }
 }

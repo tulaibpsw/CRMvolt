@@ -25,7 +25,7 @@ import { en } from '@/i18n/en'
 import { formatPktDateTime } from '@/lib/dates-pkt'
 import { requireUser } from '@/server/auth/session'
 import { isManagerOrAdmin } from '@/server/auth/scope'
-import { acceptLeadAction, addNoteAction, assignLeadAction, pingAgentAction, changeStageAction, createVisitAction, reopenLeadAction, saveSiteAction, transferDepartmentAction } from '@/server/actions'
+import { acceptLeadAction, addNoteAction, assignLeadAction, deleteLeadsAction, pingAgentAction, changeStageAction, createVisitAction, reopenLeadAction, saveSiteAction, transferDepartmentAction } from '@/server/actions'
 import { getLeadDetail, getTeamBoard } from '@/server/services/queries'
 import { AGENT_STAGES } from '@/server/services/leads'
 import { formatPkrCompact } from '@/lib/money'
@@ -151,6 +151,18 @@ export default async function LeadPage(props: PageProps<'/leads/[id]'>) {
                 </Button>
               </ActionForm>
             ) : null}
+            <details className="md:col-span-3">
+              <summary className="flex min-h-11 cursor-pointer items-center text-sm text-muted-foreground">Delete this lead…</summary>
+              <ActionForm action={deleteLeadsAction} className="max-w-md pt-2">
+                <input type="hidden" name="leadIds" value={lead.id} />
+                <input type="hidden" name="afterDelete" value="leads" />
+                <TextField label="Why delete? (required)" name="reason" required minLength={3} maxLength={200} placeholder="e.g. spam, test lead, duplicate" />
+                <CheckboxField label={`Yes, delete ${lead.leadNo} (hidden everywhere; history is kept)`} name="confirm" required />
+                <Button type="submit" variant="destructive" size="touch">
+                  Delete lead
+                </Button>
+              </ActionForm>
+            </details>
             {lead.status !== 'open' ? (
               <ActionForm action={reopenLeadAction} className="self-end">
                 <input type="hidden" name="leadId" value={lead.id} />

@@ -8,6 +8,7 @@ import { DataTable, type Column } from '@/components/common/data-table'
 import { EmptyState } from '@/components/common/states'
 import { LeadCard } from '@/components/crm/lead-card'
 import { LeadDetailsDialog } from '@/components/crm/lead-details-dialog'
+import { LeadBulkActions, LeadSelectBox } from '@/components/crm/lead-bulk-actions'
 import { AssignmentBadge, DepartmentBadge, SourceBadge, StageBadge } from '@/components/crm/badges'
 import { QuickAddLead } from '@/components/crm/quick-add-lead'
 import { ActionForm } from '@/components/common/action-form'
@@ -45,7 +46,9 @@ export default async function LeadsPage(props: PageProps<'/leads'>) {
     for (const [k, v] of Object.entries({ view, q: one('q'), sort: one('sort'), dir: one('dir'), ...params })) if (v !== undefined && v !== '') q.set(k, String(v))
     return `/leads?${q}`
   }
+  const canDelete = user.role === 'manager' || user.role === 'admin' || user.role === 'super_admin'
   const columns: Column<LeadSummary>[] = [
+    ...(canDelete ? [{ key: 'select', header: '', cell: (l: LeadSummary) => <LeadSelectBox leadId={l.id} label={`${l.name} ${l.leadNo}`} /> }] : []),
     {
       key: 'name',
       header: 'Customer',
@@ -97,6 +100,7 @@ export default async function LeadsPage(props: PageProps<'/leads'>) {
           <FilterChip key={v} label={VIEW_LABEL[v]} href={href({ view: v, page: undefined })} active={v === view} count={counts[v]} />
         ))}
       </FilterBar>
+      {canDelete && rows.length ? <LeadBulkActions /> : null}
       {rows.length === 0 ? (
         <EmptyState title="No leads here" description="New leads from the Google Sheet and WhatsApp appear automatically." />
       ) : (
@@ -104,6 +108,7 @@ export default async function LeadsPage(props: PageProps<'/leads'>) {
           <div className="space-y-3 md:hidden">
             {rows.map((l) => (
               <div key={l.id} className="flex items-start gap-2">
+                {canDelete ? <LeadSelectBox leadId={l.id} label={`${l.name} ${l.leadNo}`} /> : null}
                 <div className="min-w-0 flex-1">
                   <LeadCard lead={l} href={`/leads/${l.id}`} showAgent={user.role !== 'agent'} />
                 </div>

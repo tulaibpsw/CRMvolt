@@ -54,10 +54,10 @@ export function SelectField({
   )
 }
 
-export function CheckboxField({ label, name, defaultChecked }: { label: string; name: string; defaultChecked?: boolean }) {
+export function CheckboxField({ label, name, defaultChecked, required }: { label: string; name: string; defaultChecked?: boolean; required?: boolean }) {
   return (
     <label className="flex min-h-11 items-center gap-3 text-sm">
-      <input type="checkbox" name={name} defaultChecked={defaultChecked} className="size-5 accent-primary" />
+      <input type="checkbox" name={name} defaultChecked={defaultChecked} required={required} className="size-5 accent-primary" />
       {label}
     </label>
   )
