@@ -47,6 +47,16 @@ WhatsApp → **Configuration** → Webhook → **Edit**:
 - **Costs**: replies to customers within 24 hours are free; messages the business *starts* (templates such as reminders) are charged per message by Meta — we check the current Pakistan rates before going live.
 - Call recording: WhatsApp calls are not recorded by the Cloud API on Coexistence numbers; call proof stays outcome + screenshot (already built).
 
+## What the WhatsApp API can and cannot track
+| Question | Answer |
+|---|---|
+| Which lead was chatted on WhatsApp? | **Yes** — every message in and out on the company API number is saved on the lead, with time and delivered / read ticks. |
+| How long was the chat? | **Yes** — every message has its time on the lead's WhatsApp tab, so you see when the chat started and ended. (WhatsApp has no "chat duration" number of its own.) |
+| Chats from an agent's **personal** WhatsApp | **No** — Meta never shares personal-number chats. Agents must use the company number. |
+| Chats typed in the **WhatsApp Business app** on the company number | **Yes, with Coexistence** (Phase 2) — Meta sends a copy of every message ("echo"). |
+| Was a WhatsApp **call** made, and how long? | Only for calls made through the **WhatsApp Business Calling API** (calls inside a web/app dialer, not the phone's WhatsApp app). Meta then reports start, end and duration. Not on Coexistence numbers yet, and availability for Pakistan must be checked before we build it. |
+| Normal SIM phone calls | **No** — WhatsApp can't see them. Proof stays outcome + screenshot of the call log (already built). Real call duration would need a cloud phone line (paid) or an Android call-log app. |
+
 ## If something is wrong
 | Symptom | Fix |
 |---|---|

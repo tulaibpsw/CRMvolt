@@ -5,9 +5,12 @@ import { UsernameField } from '@/components/common/username-field'
 import { SheetSources } from '@/components/crm/sheet-sources'
 import { AlertPrefsForm } from '@/components/crm/alert-prefs-form'
 import { ProofStorage } from '@/components/crm/proof-storage'
+import { MetaLeadsPanel } from '@/components/crm/meta-leads-panel'
+import { metaMissing } from '@/server/services/meta-leads'
+import { headers } from 'next/headers'
 import { proofStorageStats } from '@/server/services/storage'
 import { cloudinaryUsage } from '@/server/services/cloudinary'
-import { User } from '@/server/db/models'
+import { Lead, User } from '@/server/db/models'
 import { prefsOf } from '@/server/services/watch'
 import { PageHeader } from '@/components/common/page-header'
 import { SectionCard } from '@/components/common/section-card'
@@ -41,6 +44,9 @@ export default async function SettingsPage() {
   const [users, departments, allSheets, sheetStatus, hours, theme] = await Promise.all([listUsers(user), listDepartments(), getSheetSources(), getSetting('sheet_status'), getSetting('working_hours'), getSetting('theme')])
   const [me, proofStats, cloudAccount] = await Promise.all([User.findById(user.id).select('role alertPrefs').lean(), proofStorageStats(user), cloudinaryUsage()])
   const myAlerts = prefsOf(me ?? { role: user.role })
+  const [metaState, metaLeadCount] = admin ? await Promise.all([getSetting('meta_leads'), Lead.countDocuments({ 'source.channel': 'meta_webhook' })]) : [null, 0]
+  const host = (await headers()).get('host') ?? 'your-app.vercel.app'
+  const webhookUrl = `${host.startsWith('localhost') ? 'http' : 'https'}://${host}/api/webhooks/meta-leads`
   const employees = users.filter((u) => (u.role === 'agent' || u.role === 'field_agent') && u.isActive).map((u) => ({ id: u.id, name: u.name, role: u.role }))
   // Managers see and manage only their department's sheets.
   const sheets = admin ? allSheets : allSheets.filter((s) => s.department === user.departmentCode)
@@ -89,6 +95,14 @@ export default async function SettingsPage() {
           <SheetSources sources={sheets} statusOf={statusOf} isAdmin={admin} defaultDepartment={user.departmentCode} />
         </SectionCard>
       </section>
+
+      {admin && metaState ? (
+        <section id="meta-leads" className="scroll-mt-20">
+          <SectionCard title="Meta lead forms (Facebook / Instagram)" description="Leads from your Meta instant forms come straight into the CRM — no Google Sheet needed.">
+            <MetaLeadsPanel missing={metaMissing()} webhookUrl={webhookUrl} state={metaState} leadCount={metaLeadCount} />
+          </SectionCard>
+        </section>
+      ) : null}
 
       {admin ? (
         <>

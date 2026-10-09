@@ -14,6 +14,10 @@ const serverEnvSchema = z.object({
   WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
   WHATSAPP_VERIFY_TOKEN: z.string().optional(),
   WHATSAPP_APP_SECRET: z.string().optional(),
+  META_PAGE_ID: z.string().optional(),
+  META_PAGE_ACCESS_TOKEN: z.string().optional(),
+  META_APP_SECRET: z.string().optional(),
+  META_VERIFY_TOKEN: z.string().optional(),
 })
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>

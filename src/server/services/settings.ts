@@ -25,6 +25,27 @@ interface SettingTypes {
   theme: ThemeColors
   /** key = sheet tab key (see sheetTabKey) */
   sheet_status: Record<string, SheetTabStatus>
+  meta_leads: MetaLeadsState
+}
+
+/** One Facebook/Instagram lead form seen on the page, and which department its leads go to. */
+export interface MetaForm {
+  name: string
+  /** null = decided by campaign/form keywords (Routing), else the company fallback */
+  department: Department | null
+  status?: string
+  leads: number
+  lastLeadAt?: string
+}
+
+export interface MetaLeadsState {
+  /** key = Meta form id */
+  forms: Record<string, MetaForm>
+  lastSyncAt?: string
+  lastWebhookAt?: string
+  /** when "Turn on live leads" subscribed the Page to the webhook */
+  subscribedAt?: string
+  lastError?: string | null
 }
 
 const DEFAULTS: SettingTypes = {
@@ -36,6 +57,7 @@ const DEFAULTS: SettingTypes = {
   },
   theme: DEFAULT_THEME,
   sheet_status: {},
+  meta_leads: { forms: {} },
 }
 
 export async function getSetting<K extends keyof SettingTypes>(key: K): Promise<SettingTypes[K]> {

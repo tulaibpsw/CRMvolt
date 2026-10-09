@@ -119,6 +119,7 @@ export default async function AdminPage() {
             <Health ok={h.cronSecret && h.cronLate === 0} label="Timers (cron every minute)" hint={!h.cronSecret ? 'CRON_SECRET is missing on the server.' : h.cronLate ? `${h.cronLate} timers are late — check cron-job.org is calling /api/cron/tick.` : 'On time'} />
             <Health ok={h.failedJobs === 0} label="Background jobs" hint={h.failedJobs ? `${h.failedJobs} jobs failed — tell the developer.` : 'No failures'} />
             <Health ok={h.whatsapp} label="WhatsApp API" hint={h.whatsapp ? 'Connected' : 'Not connected yet — see docs/whatsapp-setup.md'} />
+            <Health ok={h.metaLeads} label="Meta lead forms" hint={h.metaLeads ? 'Connected — leads come straight from Facebook / Instagram' : 'Not connected yet — see docs/meta-leads-setup.md'} />
             <Health ok={h.cloudinary} label="Screenshot storage (Cloudinary)" hint={h.cloudinary ? 'Ready' : 'Keys missing — agents cannot upload screenshots'} />
           </ul>
           <div className="mt-3 flex flex-wrap gap-2">

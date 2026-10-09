@@ -65,3 +65,18 @@
 - Files are deleted from Cloudinary first and only then marked cleared; if Cloudinary refuses, nothing changes. Each clear is written in the admin activity log.
 - Screenshot sizes now use the real size reported by Cloudinary.
 - Tests: Pakistan-time ranges; manager scope; pending-review files kept; a Cloudinary failure changes nothing; the preview deletes nothing.
+
+## Later — Meta lead forms straight into the CRM (no Google Sheet)
+- New webhook `/api/webhooks/meta-leads` (Page field `leadgen`). It checks Meta's signature, saves the event first and processes it right after (failures are retried by the cron tick).
+- The CRM fetches each lead's answers from Meta and uses the same column detection as the Sheet (full_name, phone_number, form questions). Unknown answers are kept under the lead's extra details.
+- Safety net: the cron tick checks Meta every 15 minutes for the last day's leads. Each Meta lead id is imported only once, and it is shared with Sheet rows that had the id.
+- **Settings → Meta lead forms** (admins):
+  - connection status and the webhook URL
+  - "Turn on live leads" (subscribes the Page)
+  - form → department
+  - "Fetch leads from Meta" (1–90 days; customers already in the CRM are skipped, so leads that came from the Sheet aren't doubled)
+- A system-user token is swapped for the Page token automatically.
+- Company admin health shows "Meta lead forms".
+- A public `/privacy` page, which Meta needs before the app can go Live.
+- New env vars: `META_PAGE_ID`, `META_PAGE_ACCESS_TOKEN`, plus `META_APP_SECRET` / `META_VERIFY_TOKEN`, which fall back to the WhatsApp values. Setup steps are in `docs/meta-leads-setup.md`.
+- Tests (api-routes.test.ts): verify token, signature, webhook → lead with form answers and department, Meta retry not doubled, catch-up sync skips existing customers, expired token message, page subscribe.

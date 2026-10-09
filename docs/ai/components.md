@@ -57,6 +57,7 @@ avatar · badge · button · card · checkbox · dialog · dropdown-menu · inpu
 | NextStepCard / LeadJourney | lead-journey.tsx | `next` / `steps` from `leadJourney()` (src/domain/lead-journey.ts) — "what to do now" + Accept → Try 1–3 → Close → Manager check |
 | LeadBulkActions / LeadSelectBox (client) | lead-bulk-actions.tsx | — / `leadId, label` — managers tick leads → reason → confirm → soft delete (`deleteLeadsAction`) |
 | ProofStorage | proof-storage.tsx | `stats, account, scopeLabel` — Settings → Proof storage: MB used, clear screenshots by date (preview → type CLEAR) |
+| MetaLeadsPanel | meta-leads-panel.tsx | `missing, webhookUrl, state, leadCount` — Settings → Meta lead forms (admins): connection status, Turn on live leads, form → department, Fetch leads from Meta |
 | QueuePanel | queue-panel.tsx | `teams` from `getQueuePanels()` — why leads wait + "Assign waiting leads now" |
 | AlertPrefsForm | alert-prefs-form.tsx | `prefs, employees` — Settings → My alerts |
 | UserAdminList | user-admin-list.tsx | `users, viewer` — users with the actions the viewer may use (deactivate, temp password, remove) |

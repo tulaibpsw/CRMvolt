@@ -26,17 +26,21 @@ vi.mock('react', async (importOriginal) => ({ ...(await importOriginal<typeof im
 process.env.CRON_SECRET = 'test-cron-secret-0123456789'
 process.env.WHATSAPP_VERIFY_TOKEN = 'verify-me'
 process.env.WHATSAPP_APP_SECRET = 'app-secret'
+process.env.META_PAGE_ID = '100200300400'
+process.env.META_PAGE_ACCESS_TOKEN = 'test-page-token'
 
 const tick = await import('@/app/api/cron/tick/route')
 const sheetPull = await import('@/app/api/cron/sheet-pull/route')
 const webhook = await import('@/app/api/webhooks/whatsapp/route')
+const metaHook = await import('@/app/api/webhooks/meta-leads/route')
+const { subscribeMetaPage, syncMetaLeads } = await import('@/server/services/meta-leads')
 const poll = await import('@/app/api/me/poll/route')
 const sign = await import('@/app/api/uploads/sign/route')
 const docs = await import('@/app/api/documents/[id]/route')
 const { proxy } = await import('@/proxy')
-const { ALL_MODELS, IngestEvent, Lead, User } = await import('@/server/db/models')
+const { ALL_MODELS, Contact, Department, IngestEvent, Lead, User } = await import('@/server/db/models')
 const { startSession } = await import('@/server/auth/session')
-const { setSetting } = await import('@/server/services/settings')
+const { getSetting, setSetting } = await import('@/server/services/settings')
 
 const req = (url: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}) => new NextRequest(new URL(url, 'https://crm.test'), init)
 const cron = { authorization: `Bearer ${process.env.CRON_SECRET}` }
@@ -107,6 +111,95 @@ describe('WhatsApp webhook', () => {
   })
 })
 
+describe('Meta lead ads webhook (no Google Sheet)', () => {
+  const signed = (body: string, secret = 'app-secret') => ({ 'x-hub-signature-256': `sha256=${createHmac('sha256', secret).update(body).digest('hex')}` })
+  const metaLead = (id: string, phone: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    created_time: '2026-10-09T05:15:30+0000',
+    form_id: '555000111',
+    campaign_name: 'Home solar Lahore',
+    ad_name: 'Video 1',
+    platform: 'ig',
+    field_data: [
+      { name: 'full_name', values: ['Meta Customer'] },
+      { name: 'phone_number', values: [phone] },
+      { name: 'city', values: ['Lahore'] },
+      { name: 'what_size_solar_system_are_you_planning_to_install?', values: ['15_to_25_kw'] },
+      { name: 'roof_type', values: ['Concrete'] },
+    ],
+    ...extra,
+  })
+  /** Fake Graph API: /{leadId}, /{formId}, /{pageId}/leadgen_forms, /{formId}/leads */
+  const graph = (leads: Record<string, unknown>[]) =>
+    vi.fn(async (input: URL | string) => {
+      const url = new URL(String(input))
+      expect(url.searchParams.get('access_token')).toBe('test-page-token')
+      const path = url.pathname.replace('/v23.0/', '')
+      if (path === '100200300400/leadgen_forms') return Response.json({ data: [{ id: '555000111', name: 'Solar quote form', status: 'ACTIVE' }] })
+      if (path === '555000111/leads') return Response.json({ data: leads })
+      if (path === '555000111') return Response.json({ id: '555000111', name: 'Solar quote form' })
+      if (path === '100200300400/subscribed_apps') return Response.json({ success: url.searchParams.get('subscribed_fields') === 'leadgen' })
+      const lead = leads.find((l) => l.id === path)
+      return lead ? Response.json(lead) : Response.json({ error: { message: 'not found', code: 100 } }, { status: 400 })
+    })
+
+  beforeAll(async () => {
+    await Department.create([{ code: 'INSTALLATION', name: 'Installation' }, { code: 'TRADING', name: 'Trading' }])
+  })
+
+  it('GET verification uses the verify token (shared with WhatsApp when META_VERIFY_TOKEN is empty)', async () => {
+    const ok = await metaHook.GET(req('/api/webhooks/meta-leads?hub.mode=subscribe&hub.verify_token=verify-me&hub.challenge=777'))
+    expect(ok.status).toBe(200)
+    expect(await ok.text()).toBe('777')
+    expect((await metaHook.GET(req('/api/webhooks/meta-leads?hub.mode=subscribe&hub.verify_token=nope&hub.challenge=1'))).status).toBe(403)
+  })
+  it('POST rejects unsigned / wrongly signed bodies', async () => {
+    const body = JSON.stringify({ object: 'page', entry: [] })
+    expect((await metaHook.POST(req('/api/webhooks/meta-leads', { method: 'POST', body }))).status).toBe(401)
+    expect((await metaHook.POST(req('/api/webhooks/meta-leads', { method: 'POST', body, headers: signed(body, 'other') }))).status).toBe(401)
+  })
+  it('a new form lead is fetched from Meta and created once, with the form answers and the form department', async () => {
+    await setSetting('meta_leads', { forms: { '555000111': { name: 'Solar quote form', department: 'TRADING', leads: 0 } } })
+    vi.stubGlobal('fetch', graph([metaLead('9001001', '+923009800001')]))
+    const body = JSON.stringify({ object: 'page', entry: [{ id: '100200300400', time: 1, changes: [{ field: 'leadgen', value: { leadgen_id: '9001001', form_id: '555000111', page_id: '100200300400' } }] }] })
+    expect((await metaHook.POST(req('/api/webhooks/meta-leads', { method: 'POST', body, headers: signed(body) }))).status).toBe(200)
+    expect((await metaHook.POST(req('/api/webhooks/meta-leads', { method: 'POST', body, headers: signed(body) }))).status).toBe(200) // Meta retry
+    await Promise.allSettled(pending)
+    vi.unstubAllGlobals()
+    expect((await IngestEvent.findOne({ source: 'meta_leads' }).lean())?.status).toBe('processed')
+    const leads = await Lead.find({ 'source.channel': 'meta_webhook' }).lean()
+    expect(leads).toHaveLength(1)
+    const lead = leads[0]
+    expect(lead.source).toMatchObject({ metaLeadId: '9001001', rowKey: 'meta:9001001', campaignName: 'Home solar Lahore', adName: 'Video 1', formName: 'Solar quote form', platform: 'instagram' })
+    expect(lead.site?.systemSizeRange).toBe('15_to_25_kw')
+    expect(lead.extra).toMatchObject({ roof_type: 'Concrete' })
+    expect(String(lead.departmentId)).toBe(String((await Department.findOne({ code: 'TRADING' }).lean())?._id))
+    expect((await Contact.findOne({ phones: '+923009800001' }).lean())?.city).toBe('Lahore')
+    expect((await getSetting('meta_leads')).forms['555000111']).toMatchObject({ leads: 1, department: 'TRADING' })
+  })
+  it('the catch-up sync imports missed leads, skips ones already in the CRM and customers that came from the Sheet', async () => {
+    await Contact.create({ name: 'Sheet Customer', phones: ['+923009800003'], whatsappE164: '+923009800003' })
+    vi.stubGlobal('fetch', graph([metaLead('9001001', '+923009800001'), metaLead('9001002', '+923009800002'), metaLead('9001003', '+923009800003')]))
+    const r = await syncMetaLeads(7)
+    vi.unstubAllGlobals()
+    expect(r).toMatchObject({ forms: 1, read: 3, created: 1, alreadyInCrm: 1, skipped: 1, failed: 0 })
+    expect(await Lead.countDocuments({ 'source.channel': 'meta_webhook' })).toBe(2)
+    expect((await getSetting('meta_leads')).lastError).toBeNull()
+  })
+  it('Turn on live leads subscribes the Page to leadgen', async () => {
+    vi.stubGlobal('fetch', graph([]))
+    await subscribeMetaPage()
+    vi.unstubAllGlobals()
+    expect((await getSetting('meta_leads')).subscribedAt).toBeTruthy()
+  })
+  it('an expired token is reported in plain words', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: { message: 'Session has expired', code: 190 } }, { status: 400 })))
+    await expect(syncMetaLeads(1)).rejects.toThrow(/expired/)
+    vi.unstubAllGlobals()
+    expect((await getSetting('meta_leads')).lastError).toMatch(/expired/)
+  })
+})
+
 describe('signed-in endpoints', () => {
   it('refuse without a session', async () => {
     jar.clear()
@@ -136,6 +229,6 @@ describe('proxy gate', () => {
     expect(gate('/leads', 'abc').status).toBe(200)
   })
   it('login, setup, APIs and the PWA files are public', () => {
-    for (const p of ['/login', '/setup', '/api/cron/tick', '/manifest.webmanifest', '/sw.js', '/offline.html', '/icons/icon-192.png', '/brand/volton-logo.png']) expect(gate(p).status).toBe(200)
+    for (const p of ['/login', '/setup', '/privacy', '/api/cron/tick', '/manifest.webmanifest', '/sw.js', '/offline.html', '/icons/icon-192.png', '/brand/volton-logo.png']) expect(gate(p).status).toBe(200)
   })
 })

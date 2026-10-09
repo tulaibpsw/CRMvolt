@@ -6,6 +6,7 @@ import { connectDb } from '@/server/db/connection'
 import { Attendance, AuditLog, Department as DepartmentModel, Job, Lead, SheetRow, Team, User } from '@/server/db/models'
 import { getSetting } from '@/server/services/settings'
 import { getSheetSources } from '@/server/services/sheet'
+import { metaMissing } from '@/server/services/meta-leads'
 
 /** Company-wide numbers + system health for the admin / super-admin dashboard. */
 export async function getAdminOverview() {
@@ -70,6 +71,7 @@ export async function getAdminOverview() {
       cronLate: overdueJobs,
       failedJobs,
       whatsapp: !!(env.WHATSAPP_TOKEN && env.WHATSAPP_PHONE_NUMBER_ID && env.WHATSAPP_APP_SECRET && env.WHATSAPP_VERIFY_TOKEN),
+      metaLeads: metaMissing().length === 0,
       cloudinary: !!(env.CLOUDINARY_CLOUD_NAME && env.CLOUDINARY_API_KEY && env.CLOUDINARY_API_SECRET),
       cronSecret: !!env.CRON_SECRET,
     },

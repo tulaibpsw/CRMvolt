@@ -172,10 +172,11 @@ export async function processStoredEvent(key: string): Promise<void> {
   const event = await IngestEvent.findOneAndUpdate({ idempotencyKey: key, status: { $in: ['received', 'failed'] }, tries: { $lt: 5 } }, { $inc: { tries: 1 } }, { returnDocument: 'after' }).lean()
   if (!event) return
   try {
-    await processWebhook(event.payload as Parameters<typeof processWebhook>[0])
+    if (event.source === 'meta_leads') await (await import('@/server/services/meta-leads')).processLeadgenWebhook(event.payload as never)
+    else await processWebhook(event.payload as Parameters<typeof processWebhook>[0])
     await IngestEvent.updateOne({ _id: event._id }, { status: 'processed', error: null })
   } catch (error) {
-    console.error('[whatsapp webhook]', error)
+    console.error(`[${event.source} webhook]`, error)
     await IngestEvent.updateOne({ _id: event._id }, { status: 'failed', error: error instanceof Error ? error.message.slice(0, 300) : 'failed' })
   }
 }
@@ -183,15 +184,15 @@ export async function processStoredEvent(key: string): Promise<void> {
 /** Cron: retry webhook events that were stored but not processed (server restarted, database hiccup…). */
 export async function retryStoredEvents(): Promise<number> {
   await connectDb()
-  const stuck = await IngestEvent.find({ source: 'whatsapp', status: { $in: ['received', 'failed'] }, tries: { $lt: 5 }, receivedAt: { $lt: new Date(Date.now() - 2 * 60_000) } }).sort({ receivedAt: 1 }).limit(20).select('idempotencyKey').lean()
+  const stuck = await IngestEvent.find({ source: { $in: ['whatsapp', 'meta_leads'] }, status: { $in: ['received', 'failed'] }, tries: { $lt: 5 }, receivedAt: { $lt: new Date(Date.now() - 2 * 60_000) } }).sort({ receivedAt: 1 }).limit(20).select('idempotencyKey').lean()
   for (const e of stuck) await processStoredEvent(e.idempotencyKey)
   return stuck.length
 }
 
-export async function storeRawEvent(payload: unknown, key: string): Promise<boolean> {
+export async function storeRawEvent(payload: unknown, key: string, source: 'whatsapp' | 'meta_leads' = 'whatsapp'): Promise<boolean> {
   await connectDb()
   try {
-    await IngestEvent.create({ source: 'whatsapp', idempotencyKey: key, payload })
+    await IngestEvent.create({ source, idempotencyKey: key, payload })
     return true
   } catch (error) {
     if (isDuplicateKey(error)) return false

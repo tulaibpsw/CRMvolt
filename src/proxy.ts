@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
 const SESSION_COOKIE = 'volton_session'
-const PUBLIC_PATHS = ['/login', '/setup', '/api/', '/dev/', '/_next/', '/brand/', '/icons/', '/favicon', '/manifest.webmanifest', '/sw.js', '/offline.html']
+const PUBLIC_PATHS = ['/login', '/setup', '/privacy', '/api/', '/dev/', '/_next/', '/brand/', '/icons/', '/favicon', '/manifest.webmanifest', '/sw.js', '/offline.html']
 
 /**
  * Optimistic gate only: no cookie → /login. Real checks (valid session, role, scope) happen in

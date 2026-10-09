@@ -30,6 +30,7 @@ import { clear, hit, isBlocked } from '@/server/services/rate-limit'
 import { setSetting } from '@/server/services/settings'
 import { assignVisit, createVisit, updateVisit } from '@/server/services/visits'
 import { sendWhatsAppText } from '@/server/services/whatsapp'
+import { saveMetaFormDepartments, subscribeMetaPage, syncMetaLeads } from '@/server/services/meta-leads'
 import { isHexColor, THEME_PRESETS } from '@/styles/runtime-theme'
 
 const str = (fd: FormData, key: string) => {
@@ -685,6 +686,53 @@ export async function pullSheetAction(_prev: ActionState, fd: FormData): Promise
     if (mode !== 'live') await AuditLog.create({ entity: 'setting', entityId: null, action: 'update', after: { key: 'sheet_pull', mode, sourceId }, actorId: oid(actor.id) })
     refresh()
     return { ok: !results.some((r) => r.problem), message: results.map(resultText).join(' · ') || 'Nothing to sync' }
+  })
+}
+
+// ── Meta Lead Ads (admin / super admin) ──
+
+/** "Fetch leads from Meta": reads the page's forms and imports leads of the last N days that are not in the CRM yet. */
+export async function syncMetaLeadsAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireRole('admin')
+  return attempt(async () => {
+    const days = Number(str(fd, 'days') ?? 2)
+    if (![1, 2, 7, 30, 90].includes(days)) return { ok: false, message: 'Choose how many days to fetch' }
+    const r = await syncMetaLeads(days)
+    await AuditLog.create({ entity: 'setting', entityId: null, action: 'update', after: { key: 'meta_leads_sync', days, created: r.created }, actorId: oid(actor.id) })
+    refresh()
+    const parts = [`${r.forms} form(s)`, `${r.read} lead(s) read`, `${r.created} new`]
+    if (r.reinquiry) parts.push(`${r.reinquiry} asked again`)
+    if (r.alreadyInCrm) parts.push(`${r.alreadyInCrm} already in the CRM (skipped)`)
+    if (r.failed) parts.push(`${r.failed} failed: ${r.errors.join('; ')}`)
+    return { ok: !r.failed, message: parts.join(' · ') }
+  })
+}
+
+/** One-time: tell Meta to send this Page's new form leads to the CRM webhook. */
+export async function connectMetaPageAction(): Promise<ActionState> {
+  const actor = await requireRole('admin')
+  return attempt(async () => {
+    await subscribeMetaPage()
+    await AuditLog.create({ entity: 'setting', entityId: null, action: 'update', after: { key: 'meta_leads_subscribe' }, actorId: oid(actor.id) })
+    refresh()
+    return { ok: true, message: 'Live leads are on — new form leads will appear in the CRM within seconds.' }
+  })
+}
+
+/** Which department each Meta lead form sends its leads to. */
+export async function saveMetaFormsAction(_prev: ActionState, fd: FormData): Promise<ActionState> {
+  const actor = await requireRole('admin')
+  return attempt(async () => {
+    const map: Record<string, (typeof DEPARTMENTS)[number] | null> = {}
+    for (const [key, value] of fd.entries()) {
+      const id = /^form:(\d{5,25})$/.exec(key)?.[1]
+      if (!id) continue
+      map[id] = (DEPARTMENTS as readonly string[]).includes(String(value)) ? (value as (typeof DEPARTMENTS)[number]) : null
+    }
+    await saveMetaFormDepartments(map)
+    await AuditLog.create({ entity: 'setting', entityId: null, action: 'update', after: { key: 'meta_leads_forms', map }, actorId: oid(actor.id) })
+    refresh()
+    return { ok: true, message: 'Saved — new leads from these forms go to the chosen department.' }
   })
 }
 

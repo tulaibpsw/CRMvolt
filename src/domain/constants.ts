@@ -221,7 +221,7 @@ export type WhatsAppNumberStatus = (typeof WHATSAPP_NUMBER_STATUSES)[number]
 export const WHATSAPP_OWNER_TYPES = ['agent', 'department'] as const
 export type WhatsAppOwnerType = (typeof WHATSAPP_OWNER_TYPES)[number]
 
-export const INGEST_SOURCES = ['sheet', 'whatsapp', 'website'] as const
+export const INGEST_SOURCES = ['sheet', 'whatsapp', 'website', 'meta_leads'] as const
 export type IngestSource = (typeof INGEST_SOURCES)[number]
 
 /** Google Sheet rows already handled (by rowKey) — replaces the fragile row-count cursor. */
@@ -234,7 +234,7 @@ export type IngestStatus = (typeof INGEST_STATUSES)[number]
 export const AUDIT_ACTIONS = ['create', 'update', 'soft_delete', 'restore', 'export'] as const
 export type AuditAction = (typeof AUDIT_ACTIONS)[number]
 
-export const SETTING_KEYS = ['working_hours', 'holidays', 'sla_defaults', 'sheet_config', 'follow_up_cadence', 'routing', 'theme', 'sheet_status'] as const
+export const SETTING_KEYS = ['working_hours', 'holidays', 'sla_defaults', 'sheet_config', 'follow_up_cadence', 'routing', 'theme', 'sheet_status', 'meta_leads'] as const
 export type SettingKey = (typeof SETTING_KEYS)[number]
 
 /** Meta lead-form answers (the client's real form questions). */
